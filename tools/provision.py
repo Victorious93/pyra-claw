@@ -53,9 +53,13 @@ def request(port: serial.Serial, msg: dict, timeout: float) -> dict | None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawTextHelpFormatter
+    )
     ap.add_argument("port")
-    ap.add_argument("cmd", choices=["hello", "get", "provision", "reboot", "factory_reset"])
+    ap.add_argument(
+        "cmd", choices=["hello", "get", "provision", "reboot", "factory_reset"]
+    )
     ap.add_argument("kv", nargs="*", help="key=value pairs for provision")
     ap.add_argument("--baud", type=int, default=115200)
     ap.add_argument("--timeout", type=float, default=3.0)
@@ -77,7 +81,9 @@ def main() -> int:
             time.sleep(1.5)
         resp = request(port, msg, a.timeout)
     if resp is None:
-        print("no reply (provisioning window is the first 10 s after boot, or while no ssid is set)")
+        print(
+            "no reply (provisioning window is the first 10 s after boot, or while no ssid is set)"
+        )
         return 2
     print(json.dumps(resp, indent=2))
     return 0 if resp.get("ok") else 1

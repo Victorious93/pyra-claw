@@ -56,7 +56,7 @@ flowchart LR
 ![Setup](../assets/visuals/05c_setup_steps.png)
 1. **Pi:** Flash Bookworm 64-bit, then `git clone` this repo and run `sudo ./hub/install.sh`. Save the printed token. Edit `/etc/pyra-claw/config.toml` and set `pc.mac`, then run `sudo systemctl restart pyra-hub`.
 2. **PC:** Enable Wake-on-LAN in BIOS/UEFI and in the NIC driver (Windows: *Wake on Magic Packet*). Turn off Fast Startup if WOL from S5 fails.
-3. **ESP32:** Copy `firmware/esp32-wake/include/config.example.h` to `config.h` and fill in Wi-Fi, the hub IP and the PC MAC. Then run `pio run -t upload`.
+3. **ESP32:** Flash once with `pio run -t upload` (from `firmware/esp32-wake`). Then provision Wi-Fi, the hub IP and the PC MAC over USB serial, no rebuild needed: `python tools/provision.py /dev/ttyUSB0 provision ssid=... pass=... broker=192.168.4.1 pc_mac=AA:BB:CC:DD:EE:FF`, then `... reboot`. The node accepts commands for 10 s after boot, or any time while no Wi-Fi SSID is set. See [PROVISIONING.md](PROVISIONING.md) (UNTESTED ON HARDWARE). Alternatively, copy `include/config.example.h` to `config.h` for compile-time defaults; provisioned values override them.
 4. **Phone:** Install the APK from the CI artifact. Turn on USB tethering (Pi usually reaches it via `usb0`; set the hub URL accordingly) or join the same Wi-Fi. Enter the hub URL and token.
 
 ## 6. Usage

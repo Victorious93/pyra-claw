@@ -10,3 +10,6 @@
 #define PC_MAC         {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF}
 #define PULSE_PIN      26              // -> 330R -> PC817 anode
 #define PULSE_DEFAULT_MS 300
+#define PC_BROADCAST   "255.255.255.255"
+#define HUB_TOKEN      ""
+// All of the above can be overridden at runtime over USB serial (docs/PROVISIONING.md).

@@ -1,0 +1,20 @@
+# Copy to /etc/pyra-claw/config.toml and edit.
+[hub]
+host = "0.0.0.0"
+port = 8787
+# Generate with: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+auth_token = "CHANGE_ME"
+audit_log = "/var/lib/pyra-claw/audit.jsonl"
+approval_ttl_s = 30
+
+[mqtt]
+host = "127.0.0.1"
+port = 1883
+username = ""
+password = ""
+topic_prefix = "pyra/node"
+
+[pc]
+mac = "AA:BB:CC:DD:EE:FF"
+broadcast = "255.255.255.255"
+wake_node = "esp32-wake-01"

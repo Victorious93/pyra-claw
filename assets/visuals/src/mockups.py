@@ -1,0 +1,91 @@
+import os
+OUT="/workspace/pyra-claw-visuals/src"
+LOGO='''<svg viewBox="0 0 100 100" width="{s}" height="{s}"><defs><linearGradient id="g" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#FF5A0F"/><stop offset="1" stop-color="#FFB347"/></linearGradient></defs>
+<path d="M30 82 C12 62 16 36 30 18 C30 40 38 52 44 62 Z" fill="url(#g)"/><path d="M50 70 C40 50 42 26 52 8 C56 30 62 44 58 70 Z" fill="url(#g)"/><path d="M70 82 C88 62 84 36 70 18 C70 40 62 52 56 62 Z" fill="url(#g)"/>
+<polygon points="50,58 63,65.5 63,80.5 50,88 37,80.5 37,65.5" fill="#26262B" stroke="#FF6A1A" stroke-width="3"/></svg>'''
+CSS='''*{box-sizing:border-box;margin:0;padding:0}
+body{width:1080px;height:1920px;background:#141417;font-family:Inter,Roboto,sans-serif;color:#F2EEE9;overflow:hidden;position:relative}
+.status{height:72px;display:flex;justify-content:space-between;align-items:center;padding:0 48px;font-size:30px;color:#CFC8C0}
+.top{display:flex;align-items:center;gap:22px;padding:24px 48px 28px}
+.top h1{font-size:50px;font-weight:800;letter-spacing:.5px}.top h1 span{color:#FF6A1A}
+.top .sub{font-size:26px;color:#9A938C;margin-top:4px}
+.card{background:#1F1F24;border:1px solid #2E2E35;border-radius:36px;margin:0 40px 28px;padding:34px 38px}
+.row{display:flex;justify-content:space-between;align-items:center}
+.lbl{font-size:24px;color:#9A938C;text-transform:uppercase;letter-spacing:2px;font-weight:600}
+.big{font-size:40px;font-weight:700;margin-top:8px}
+.ok{color:#5BD68A}.warn{color:#FFB347}.err{color:#FF5A4F}.dim{color:#8A847E}
+.dot{display:inline-block;width:20px;height:20px;border-radius:50%;margin-right:14px;vertical-align:middle}
+.chip{display:inline-block;font-size:22px;padding:8px 18px;border-radius:999px;background:#2A2A31;color:#CFC8C0;margin-right:10px;font-weight:600}
+.chip.o{background:#3A2213;color:#FF9A4D}
+.node{display:flex;align-items:center;justify-content:space-between;padding:24px 0;border-top:1px solid #2E2E35;font-size:32px}
+.node:first-of-type{border-top:none}
+.node small{display:block;font-size:23px;color:#8A847E;margin-top:4px;font-family:'JetBrains Mono',monospace}
+.btn{display:flex;align-items:center;justify-content:center;gap:18px;height:150px;border-radius:40px;font-size:40px;font-weight:800;margin:0 40px 24px}
+.btn.wake{background:linear-gradient(135deg,#FF5A0F,#FF9A3D);color:#1A1A1D}
+.btn.pulse{background:#1F1F24;border:3px solid #FF6A1A;color:#FF8A3D}
+.btn small{display:block;font-size:22px;font-weight:600;opacity:.8}
+.nav{position:absolute;bottom:0;left:0;right:0;height:170px;background:#1A1A1E;border-top:1px solid #2E2E35;display:flex;justify-content:space-around;align-items:center;padding-bottom:30px}
+.nav div{text-align:center;font-size:24px;color:#8A847E;font-weight:600}.nav div.a{color:#FF6A1A}
+.nav i{display:block;width:64px;height:8px;border-radius:4px;margin:0 auto 14px;background:transparent}.nav div.a i{background:#FF6A1A}
+.mono{font-family:'JetBrains Mono',monospace}
+.log{font-family:'JetBrains Mono',monospace;font-size:24px;padding:18px 0;border-top:1px solid #2A2A30;line-height:1.45}
+.log b{font-weight:700}
+.scrim{position:absolute;inset:0;background:rgba(8,8,10,.72)}
+.dialog{position:absolute;left:60px;right:60px;top:430px;background:#1F1F24;border:2px solid #FF6A1A;border-radius:44px;padding:54px 50px;box-shadow:0 0 120px rgba(255,106,26,.25)}
+.dialog h2{font-size:48px;font-weight:800;margin:18px 0 18px}
+.dialog p{font-size:30px;color:#CFC8C0;line-height:1.45;margin-bottom:22px}
+.hold{height:130px;border-radius:36px;background:linear-gradient(90deg,#FF5A0F 0%,#FF8A3D 62%,#3A2213 62%);display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:800;color:#1A1A1D;margin-top:28px}
+.cancel{height:110px;border-radius:36px;border:2px solid #3A3A42;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:700;color:#CFC8C0;margin-top:22px}
+.kv{display:flex;justify-content:space-between;font-size:28px;padding:14px 0;border-top:1px solid #2A2A30}.kv span:first-child{color:#8A847E}
+.faq h3{font-size:32px;margin-bottom:10px;color:#FF9A4D}.faq p{font-size:27px;color:#CFC8C0;line-height:1.45}
+.mock{position:absolute;right:40px;bottom:186px;font-size:20px;color:#5E5953;font-family:'JetBrains Mono',monospace}
+'''
+LOCK='<svg width="44" height="44" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2" fill="#FF8A3D"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="#FF8A3D" stroke-width="2.4" fill="none"/></svg>'
+POWER='<svg width="48" height="48" viewBox="0 0 24 24"><path d="M12 3v9" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><path d="M6.3 7.5a8 8 0 1 0 11.4 0" stroke="currentColor" stroke-width="2.6" fill="none" stroke-linecap="round"/></svg>'
+def page(body,active,dim=False):
+    tabs=["Dashboard","Nodes","Logs","Help"]
+    nav='<div class="nav">'+''.join(f'<div class="{"a" if t==active else ""}"><i></i>{t}</div>' for t in tabs)+'</div>'
+    top=f'<div class="status"><span>22:47</span><span>Wi-Fi · USB · 82%</span></div><div class="top">{LOGO.format(s=96)}<div><h1>Pyra<span>Claw</span></h1><div class="sub">Command hub controller · UI mockup</div></div></div>'
+    return f'<html><head><meta charset="utf-8"><style>{CSS}</style></head><body>{top}{body}{nav}<div class="mock">CONCEPT MOCKUP · sample data</div></body></html>'
+dash='''<div class="card"><div class="row"><div><div class="lbl">Hub · pyra-hub (Pi 5)</div><div class="big"><span class="dot" style="background:#5BD68A"></span>Online</div></div>
+<div style="text-align:right"><span class="chip o">USB-C OTG</span><span class="chip">Wi-Fi</span></div></div>
+<div class="row" style="margin-top:26px;font-size:26px;color:#9A938C"><span>MQTT broker: connected</span><span>droidcommand-AI node: registered</span></div></div>
+<div class="card"><div class="row" style="margin-bottom:8px"><div class="lbl">Nodes</div><div class="dim" style="font-size:24px">3 registered</div></div>
+<div class="node"><div><span class="dot" style="background:#5BD68A"></span>esp32-wake<small>WOL + PC817 pulse · inside PC</small></div><span class="ok" style="font-size:26px">online</span></div>
+<div class="node"><div><span class="dot" style="background:#5BD68A"></span>esp32-aux<small>desk sensor node</small></div><span class="ok" style="font-size:26px">online</span></div>
+<div class="node"><div><span class="dot" style="background:#FFB347"></span>don-phone<small>droidcommand-AI node (this device)</small></div><span class="warn" style="font-size:26px">active</span></div></div>
+<div class="card"><div class="row"><div><div class="lbl">Target PC · DON-PC</div><div class="big dim">Asleep / off</div></div><div class="mono dim" style="font-size:24px">MAC AA:BB:CC:DD:EE:FF</div></div></div>
+<div class="btn wake">'''+POWER+'''<div>Wake PC<small>Send Wake-on-LAN magic packet</small></div></div>
+<div class="btn pulse">'''+LOCK+'''<div>Power Pulse<small>Locked · ~300 ms header pulse · needs approval</small></div></div>'''
+open(f"{OUT}/03a_dashboard.html","w").write(page(dash,"Dashboard"))
+dlg=dash+'''<div class="scrim"></div><div class="dialog">'''+LOCK.replace('44','72')+'''<h2>Confirm Power Pulse?</h2>
+<p>This closes the PC817 output across the <b>PWR_SW</b> header on <b>DON-PC</b> for <b>~300 ms</b> — the same as a short press of the case power button.</p>
+<p style="color:#FFB347">If the PC is already on, this may trigger sleep or shutdown. Prefer <b>Wake PC</b> (WOL) first.</p>
+<div class="kv"><span>Node</span><span class="mono">esp32-wake</span></div><div class="kv"><span>Pulse</span><span class="mono">300 ms (capped)</span></div><div class="kv"><span>Approval</span><span class="mono">hold + biometric</span></div>
+<div class="hold">Hold to approve…</div><div class="cancel">Cancel</div></div>'''
+open(f"{OUT}/03b_power_pulse_confirm.html","w").write(page(dlg,"Dashboard"))
+nodes='''<div class="card"><div class="row"><div><div class="lbl">Node detail</div><div class="big">esp32-wake</div></div><span class="chip o">online</span></div>
+<div style="margin-top:22px"><div class="kv"><span>Role</span><span>WOL sender + power pulse</span></div><div class="kv"><span>Board</span><span>ESP32 dev board</span></div>
+<div class="kv"><span>Transport</span><span>MQTT over Wi-Fi</span></div><div class="kv"><span>Topic</span><span class="mono">pyra/node/esp32-wake/#</span></div>
+<div class="kv"><span>Pulse GPIO</span><span class="mono">GPIO26 → PC817</span></div><div class="kv"><span>Pulse length</span><span class="mono">300 ms</span></div>
+<div class="kv"><span>Approval gate</span><span class="ok">enabled</span></div><div class="kv"><span>Last seen</span><span class="mono">sample: 4 s ago</span></div></div></div>
+<div class="card"><div class="lbl" style="margin-bottom:10px">Other nodes</div>
+<div class="node"><div><span class="dot" style="background:#5BD68A"></span>esp32-aux<small>MQTT · pyra/node/esp32-aux/#</small></div><span class="dim" style="font-size:26px">›</span></div>
+<div class="node"><div><span class="dot" style="background:#FFB347"></span>don-phone<small>droidcommand-AI node · HTTP</small></div><span class="dim" style="font-size:26px">›</span></div>
+<div class="node"><div><span class="dot" style="background:#5BD68A"></span>pyra-hub<small>Raspberry Pi 5 · broker + API</small></div><span class="dim" style="font-size:26px">›</span></div></div>
+<div class="btn pulse" style="height:120px;font-size:34px">+ Add node</div>'''
+open(f"{OUT}/03c_nodes_detail.html","w").write(page(nodes,"Nodes"))
+L=[("22:41:02","ok","HUB","pyra-hub online (USB-C OTG)"),("22:41:03","ok","MQTT","esp32-wake connected"),("22:41:03","ok","MQTT","esp32-aux connected"),
+("22:41:05","ok","NODE","don-phone registered as droidcommand-AI node"),("22:43:17","warn","CMD","wake_pc requested by don-phone"),("22:43:17","ok","WOL","magic packet sent → AA:BB:CC:DD:EE:FF (UDP 9)"),
+("22:44:50","warn","CMD","power_pulse requested — awaiting approval"),("22:44:58","ok","AUTH","approval granted (hold + biometric)"),("22:44:58","ok","GPIO","PC817 pulse 300 ms on esp32-wake"),
+("22:45:30","err","NODE","esp32-aux heartbeat missed (1)"),("22:45:40","ok","NODE","esp32-aux heartbeat restored")]
+c={"ok":"#5BD68A","warn":"#FFB347","err":"#FF5A4F"}
+logs='<div class="card" style="padding-top:20px"><div class="row" style="margin:6px 0 10px"><div class="lbl">Event log</div><div><span class="chip o">All</span><span class="chip">CMD</span><span class="chip">Errors</span></div></div>'+''.join(f'<div class="log"><span class="dim">{t}</span> <b style="color:{c[k]}">[{tag}]</b> {m}</div>' for t,k,tag,m in L)+'<div class="log dim" style="text-align:center">sample entries for illustration · not real test output</div></div>'
+open(f"{OUT}/03d_logs.html","w").write(page(logs,"Logs"))
+F=[("How do I connect?","Plug the phone into the hub via USB-C OTG, or join the same Wi-Fi and enter the hub address (e.g. pyra-hub.local)."),
+("Wake PC vs Power Pulse","Wake PC sends a Wake-on-LAN magic packet. Power Pulse briefly shorts the PWR_SW header (~300 ms) through an optocoupler — use it when WOL is not available."),
+("Why is Power Pulse locked?","It acts like a real power-button press. It always needs hold-to-approve, and the pulse length is capped on the node."),
+("WOL does nothing","Enable Wake-on-LAN in BIOS/UEFI, disable ErP / deep sleep, and enable “Wake on Magic Packet” on the NIC."),
+("droidcommand-AI","The app also registers this phone as a droidcommand-AI node so it can be targeted by the wider fleet.")]
+helpb='<div class="card faq">'+''.join(f'<div style="padding:22px 0;border-top:1px solid #2A2A30"><h3>{q}</h3><p>{a}</p></div>' for q,a in F)+'</div>'
+open(f"{OUT}/03e_help.html","w").write(page(helpb,"Help"))

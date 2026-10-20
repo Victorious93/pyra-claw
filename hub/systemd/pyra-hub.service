@@ -1,0 +1,19 @@
+[Unit]
+Description=Pyra Claw command hub
+After=network-online.target mosquitto.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pyra
+Environment=PYRA_CONFIG=/etc/pyra-claw/config.toml
+ExecStart=/opt/pyra-claw/venv/bin/pyra-hub
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/pyra-claw
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

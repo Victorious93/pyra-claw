@@ -1,0 +1,52 @@
+<html><head><meta charset="utf-8"><style>*{box-sizing:border-box;margin:0;padding:0}
+body{width:1080px;height:1920px;background:#141417;font-family:Inter,Roboto,sans-serif;color:#F2EEE9;overflow:hidden;position:relative}
+.status{height:72px;display:flex;justify-content:space-between;align-items:center;padding:0 48px;font-size:30px;color:#CFC8C0}
+.top{display:flex;align-items:center;gap:22px;padding:24px 48px 28px}
+.top h1{font-size:50px;font-weight:800;letter-spacing:.5px}.top h1 span{color:#FF6A1A}
+.top .sub{font-size:26px;color:#9A938C;margin-top:4px}
+.card{background:#1F1F24;border:1px solid #2E2E35;border-radius:36px;margin:0 40px 28px;padding:34px 38px}
+.row{display:flex;justify-content:space-between;align-items:center}
+.lbl{font-size:24px;color:#9A938C;text-transform:uppercase;letter-spacing:2px;font-weight:600}
+.big{font-size:40px;font-weight:700;margin-top:8px}
+.ok{color:#5BD68A}.warn{color:#FFB347}.err{color:#FF5A4F}.dim{color:#8A847E}
+.dot{display:inline-block;width:20px;height:20px;border-radius:50%;margin-right:14px;vertical-align:middle}
+.chip{display:inline-block;font-size:22px;padding:8px 18px;border-radius:999px;background:#2A2A31;color:#CFC8C0;margin-right:10px;font-weight:600}
+.chip.o{background:#3A2213;color:#FF9A4D}
+.node{display:flex;align-items:center;justify-content:space-between;padding:24px 0;border-top:1px solid #2E2E35;font-size:32px}
+.node:first-of-type{border-top:none}
+.node small{display:block;font-size:23px;color:#8A847E;margin-top:4px;font-family:'JetBrains Mono',monospace}
+.btn{display:flex;align-items:center;justify-content:center;gap:18px;height:150px;border-radius:40px;font-size:40px;font-weight:800;margin:0 40px 24px}
+.btn.wake{background:linear-gradient(135deg,#FF5A0F,#FF9A3D);color:#1A1A1D}
+.btn.pulse{background:#1F1F24;border:3px solid #FF6A1A;color:#FF8A3D}
+.btn small{display:block;font-size:22px;font-weight:600;opacity:.8}
+.nav{position:absolute;bottom:0;left:0;right:0;height:170px;background:#1A1A1E;border-top:1px solid #2E2E35;display:flex;justify-content:space-around;align-items:center;padding-bottom:30px}
+.nav div{text-align:center;font-size:24px;color:#8A847E;font-weight:600}.nav div.a{color:#FF6A1A}
+.nav i{display:block;width:64px;height:8px;border-radius:4px;margin:0 auto 14px;background:transparent}.nav div.a i{background:#FF6A1A}
+.mono{font-family:'JetBrains Mono',monospace}
+.log{font-family:'JetBrains Mono',monospace;font-size:24px;padding:18px 0;border-top:1px solid #2A2A30;line-height:1.45}
+.log b{font-weight:700}
+.scrim{position:absolute;inset:0;background:rgba(8,8,10,.72)}
+.dialog{position:absolute;left:60px;right:60px;top:430px;background:#1F1F24;border:2px solid #FF6A1A;border-radius:44px;padding:54px 50px;box-shadow:0 0 120px rgba(255,106,26,.25)}
+.dialog h2{font-size:48px;font-weight:800;margin:18px 0 18px}
+.dialog p{font-size:30px;color:#CFC8C0;line-height:1.45;margin-bottom:22px}
+.hold{height:130px;border-radius:36px;background:linear-gradient(90deg,#FF5A0F 0%,#FF8A3D 62%,#3A2213 62%);display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:800;color:#1A1A1D;margin-top:28px}
+.cancel{height:110px;border-radius:36px;border:2px solid #3A3A42;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:700;color:#CFC8C0;margin-top:22px}
+.kv{display:flex;justify-content:space-between;font-size:28px;padding:14px 0;border-top:1px solid #2A2A30}.kv span:first-child{color:#8A847E}
+.faq h3{font-size:32px;margin-bottom:10px;color:#FF9A4D}.faq p{font-size:27px;color:#CFC8C0;line-height:1.45}
+.mock{position:absolute;right:40px;bottom:186px;font-size:20px;color:#5E5953;font-family:'JetBrains Mono',monospace}
+</style></head><body><div class="status"><span>22:47</span><span>Wi-Fi · USB · 82%</span></div><div class="top"><svg viewBox="0 0 100 100" width="96" height="96"><defs><linearGradient id="g" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#FF5A0F"/><stop offset="1" stop-color="#FFB347"/></linearGradient></defs>
+<path d="M30 82 C12 62 16 36 30 18 C30 40 38 52 44 62 Z" fill="url(#g)"/><path d="M50 70 C40 50 42 26 52 8 C56 30 62 44 58 70 Z" fill="url(#g)"/><path d="M70 82 C88 62 84 36 70 18 C70 40 62 52 56 62 Z" fill="url(#g)"/>
+<polygon points="50,58 63,65.5 63,80.5 50,88 37,80.5 37,65.5" fill="#26262B" stroke="#FF6A1A" stroke-width="3"/></svg><div><h1>Pyra<span>Claw</span></h1><div class="sub">Command hub controller · UI mockup</div></div></div><div class="card"><div class="row"><div><div class="lbl">Hub · pyra-hub (Pi 5)</div><div class="big"><span class="dot" style="background:#5BD68A"></span>Online</div></div>
+<div style="text-align:right"><span class="chip o">USB-C OTG</span><span class="chip">Wi-Fi</span></div></div>
+<div class="row" style="margin-top:26px;font-size:26px;color:#9A938C"><span>MQTT broker: connected</span><span>droidcommand-AI node: registered</span></div></div>
+<div class="card"><div class="row" style="margin-bottom:8px"><div class="lbl">Nodes</div><div class="dim" style="font-size:24px">3 registered</div></div>
+<div class="node"><div><span class="dot" style="background:#5BD68A"></span>esp32-wake<small>WOL + PC817 pulse · inside PC</small></div><span class="ok" style="font-size:26px">online</span></div>
+<div class="node"><div><span class="dot" style="background:#5BD68A"></span>esp32-aux<small>desk sensor node</small></div><span class="ok" style="font-size:26px">online</span></div>
+<div class="node"><div><span class="dot" style="background:#FFB347"></span>don-phone<small>droidcommand-AI node (this device)</small></div><span class="warn" style="font-size:26px">active</span></div></div>
+<div class="card"><div class="row"><div><div class="lbl">Target PC · DON-PC</div><div class="big dim">Asleep / off</div></div><div class="mono dim" style="font-size:24px">MAC AA:BB:CC:DD:EE:FF</div></div></div>
+<div class="btn wake"><svg width="48" height="48" viewBox="0 0 24 24"><path d="M12 3v9" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><path d="M6.3 7.5a8 8 0 1 0 11.4 0" stroke="currentColor" stroke-width="2.6" fill="none" stroke-linecap="round"/></svg><div>Wake PC<small>Send Wake-on-LAN magic packet</small></div></div>
+<div class="btn pulse"><svg width="44" height="44" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2" fill="#FF8A3D"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="#FF8A3D" stroke-width="2.4" fill="none"/></svg><div>Power Pulse<small>Locked · ~300 ms header pulse · needs approval</small></div></div><div class="scrim"></div><div class="dialog"><svg width="72" height="72" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2" fill="#FF8A3D"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="#FF8A3D" stroke-width="2.4" fill="none"/></svg><h2>Confirm Power Pulse?</h2>
+<p>This closes the PC817 output across the <b>PWR_SW</b> header on <b>DON-PC</b> for <b>~300 ms</b> — the same as a short press of the case power button.</p>
+<p style="color:#FFB347">If the PC is already on, this may trigger sleep or shutdown. Prefer <b>Wake PC</b> (WOL) first.</p>
+<div class="kv"><span>Node</span><span class="mono">esp32-wake</span></div><div class="kv"><span>Pulse</span><span class="mono">300 ms (capped)</span></div><div class="kv"><span>Approval</span><span class="mono">hold + biometric</span></div>
+<div class="hold">Hold to approve…</div><div class="cancel">Cancel</div></div><div class="nav"><div class="a"><i></i>Dashboard</div><div class=""><i></i>Nodes</div><div class=""><i></i>Logs</div><div class=""><i></i>Help</div></div><div class="mock">CONCEPT MOCKUP · sample data</div></body></html>

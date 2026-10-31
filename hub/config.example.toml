@@ -6,6 +6,7 @@ port = 8787
 auth_token = "CHANGE_ME"
 audit_log = "/var/lib/pyra-claw/audit.jsonl"
 approval_ttl_s = 30
+timers_file = "/var/lib/pyra-claw/timers.json"
 
 [mqtt]
 host = "127.0.0.1"
@@ -25,3 +26,27 @@ wake_node = "esp32-wake-01"
 # into the ESP32 as NVS key `hub_token` (tools/provision.py ... hub_token=<value>).
 # install.sh generates it and stores a copy in /etc/pyra-claw/node-credentials.
 hub_token = "CHANGE_ME_NODE"
+
+# ---- v0.3: Timers and downstream device control (UNTESTED ON HARDWARE) -------------
+# One [devices.<id>] table per device. `charge`, `power_on` and `power_off` are backend
+# specs; power_on/power_off fall back to `charge` when omitted. Backends:
+#   uhubctl:     { backend = "uhubctl", location = "1-1", port = 2 }  (external PPPS hub!)
+#   adb:         { backend = "adb", serial = "0123456789ABCDEF", profile = "nexus5" }
+#                profiles: nexus5, nexus6, generic (root required for charge control)
+#   esp32_relay: { backend = "esp32_relay", node = "esp32-wake-01", channel = 0 }
+#                (firmware does NOT implement usb_power yet)
+#   mock:        { backend = "mock" }  (logs only)
+#
+# [devices.phone1]
+# label = "Nexus rack slot 1"
+# charge = { backend = "uhubctl", location = "1-1", port = 1 }
+# power_off = { backend = "adb", serial = "SERIAL1", profile = "nexus5" }
+#
+# [devices.phone2]
+# label = "Nexus rack slot 2"
+# charge = { backend = "uhubctl", location = "1-1", port = 2 }
+# power_off = { backend = "adb", serial = "SERIAL2", profile = "nexus5" }
+#
+# [devices.phone3]
+# label = "Nexus rack slot 3"
+# charge = { backend = "adb", serial = "SERIAL3", profile = "nexus6" }

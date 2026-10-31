@@ -19,6 +19,8 @@ def run() -> None:
         raise SystemExit("Set hub.auth_token in config.toml before starting")
     if not cfg.node.hub_token or cfg.node.hub_token.startswith("CHANGE_ME"):
         logging.warning("node.hub_token not set: pc.power_pulse will be refused (503)")
+    if not cfg.timers_file:
+        logging.warning("hub.timers_file not set: timers are kept in memory only")
     bridge = MqttBridge(cfg.mqtt, Registry())
     bridge.start()
     try:

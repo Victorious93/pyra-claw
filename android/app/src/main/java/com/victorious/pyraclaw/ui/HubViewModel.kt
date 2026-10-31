@@ -6,7 +6,10 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.victorious.pyraclaw.BuildConfig
+import com.victorious.pyraclaw.net.DeviceDto
 import com.victorious.pyraclaw.net.HubApi
+import com.victorious.pyraclaw.net.TimerDto
+import com.victorious.pyraclaw.net.TimerIn
 import com.victorious.pyraclaw.net.NodeDto
 import com.victorious.pyraclaw.net.RemoteCommand
 import com.victorious.pyraclaw.net.StatusDto
@@ -19,6 +22,8 @@ class HubViewModel : ViewModel() {
     var nodes by mutableStateOf<List<NodeDto>>(emptyList())
     var logs by mutableStateOf<List<String>>(emptyList())
     var message by mutableStateOf<String?>(null)
+    var timers by mutableStateOf<List<TimerDto>>(emptyList())
+    var devices by mutableStateOf<List<DeviceDto>>(emptyList())
 
     private fun api() = HubApi.create(hubUrl, token)
 
@@ -45,5 +50,35 @@ class HubViewModel : ViewModel() {
                 args = mapOf("ms" to 300))
         )
         message = "Power pulse: ${r.result}"
+    }
+
+    // ---- v0.3 timers ------------------------------------------------------------
+    fun refreshTimers() = guarded {
+        timers = api().timers().timers ?: emptyList()
+        devices = api().devices().devices ?: emptyList()
+    }
+
+    /** Timers with approval-gated steps need a fresh timer.arm token (pre-approval, audited). */
+    fun saveTimer(id: String?, t: TimerIn, needsApproval: Boolean) = guarded {
+        val body = if (needsApproval) t.copy(approval_token = api().approve("timer.arm").approval_token) else t
+        if (id == null) api().createTimer(body) else api().updateTimer(id, body)
+        message = "Saved timer ${t.name}"
+        refreshTimers()
+    }
+
+    fun setTimerEnabled(id: String, on: Boolean) = guarded {
+        if (on) api().enableTimer(id) else api().disableTimer(id)
+        refreshTimers()
+    }
+
+    fun runTimer(id: String) = guarded {
+        api().runTimer(id)
+        message = "Timer started"
+        refreshTimers()
+    }
+
+    fun deleteTimer(id: String) = guarded {
+        api().deleteTimer(id)
+        refreshTimers()
     }
 }

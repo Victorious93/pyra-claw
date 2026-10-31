@@ -4,6 +4,8 @@ import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
+import retrofit2.http.DELETE
+import retrofit2.http.PUT
 import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Path
@@ -33,7 +35,59 @@ data class RemoteCommand(
     val type: String = "remote.command",
 )
 
+// ---- v0.3 timers ----------------------------------------------------------------
+data class StepDto(
+    val command: String,
+    val target: String? = null,
+    val args: Map<String, Any?> = emptyMap(),
+    val delay_s: Double = 0.0,
+)
+data class ScheduleDto(
+    val kind: String = "manual", // once | daily | weekly | manual
+    val at: String? = null, // once: ISO local datetime, e.g. 2026-11-01T07:30
+    val time: String? = null, // daily/weekly: HH:MM
+    val days: List<Int> = emptyList(), // weekly: 0=Mon..6=Sun
+)
+data class TimerDto(
+    val id: String,
+    val name: String,
+    val enabled: Boolean,
+    val schedule: ScheduleDto,
+    val steps: List<StepDto>,
+    val preapproved: Boolean = false,
+    val next_run: Double? = null,
+    val last_run: Double? = null,
+    val last_result: String? = null,
+    val running: Boolean = false,
+    val current_step: Int? = null,
+)
+data class TimerIn(
+    val name: String,
+    val enabled: Boolean,
+    val schedule: ScheduleDto,
+    val steps: List<StepDto>,
+    val approval_token: String? = null,
+)
+data class TimersDto(val timers: List<TimerDto>?, val events: List<Map<String, Any?>>?)
+data class DeviceDto(
+    val id: String,
+    val label: String?,
+    val charge_backend: String?,
+    val power_on_backend: String?,
+    val power_off_backend: String?,
+)
+data class DevicesDto(val devices: List<DeviceDto>?)
+
 interface HubApi {
+    @GET("api/devices") suspend fun devices(): DevicesDto
+    @GET("api/timers") suspend fun timers(): TimersDto
+    @POST("api/timers") suspend fun createTimer(@Body t: TimerIn): TimerDto
+    @PUT("api/timers/{id}") suspend fun updateTimer(@Path("id") id: String, @Body t: TimerIn): TimerDto
+    @DELETE("api/timers/{id}") suspend fun deleteTimer(@Path("id") id: String): Map<String, Any?>
+    @POST("api/timers/{id}/enable") suspend fun enableTimer(@Path("id") id: String): TimerDto
+    @POST("api/timers/{id}/disable") suspend fun disableTimer(@Path("id") id: String): TimerDto
+    @POST("api/timers/{id}/run") suspend fun runTimer(@Path("id") id: String): Map<String, Any?>
+
     @GET("api/status") suspend fun status(): StatusDto
     @GET("api/nodes") suspend fun nodes(): NodesDto
     @GET("api/audit") suspend fun audit(): AuditDto

@@ -12,8 +12,11 @@ object DroidCommandNode {
     const val NODE_TYPE = "EXTERNAL_NODE"
     const val NODE_ID = "pyra-claw"
     const val ACTION_REGISTER = "ai.droidcommand.action.REGISTER_NODE"
-    val CAPABILITIES = listOf("hub.status", "node.list", "pc.wake", "pc.power_pulse")
-    val APPROVAL_REQUIRED = setOf("pc.power_pulse")
+    val CAPABILITIES = listOf(
+        "hub.status", "node.list", "pc.wake", "pc.power_pulse",
+        "charge.on", "charge.off", "device.power_on", "device.power_off",
+    )
+    val APPROVAL_REQUIRED = setOf("pc.power_pulse", "device.power_off")
 
     fun register(context: Context) {
         val intent = Intent(ACTION_REGISTER).apply {
@@ -21,6 +24,8 @@ object DroidCommandNode {
             putExtra("node_type", NODE_TYPE)
             putExtra("envelopes", arrayOf("remote.command", "macro.step"))
             putExtra("capabilities", CAPABILITIES.toTypedArray())
+            putExtra("command_action", ExternalNodeReceiver.ACTION_COMMAND)
+            putExtra("command_package", context.packageName)
             putExtra("approval_required", APPROVAL_REQUIRED.toTypedArray())
         }
         // TODO: target droidcommand-AI package explicitly once its contract is finalized.

@@ -1,6 +1,47 @@
-# Pyra Claw Protocol (v0.2)
+# Pyra Claw Protocol (v0.3)
 
-> ⚠️ v0.2 firmware changes are **UNTESTED ON HARDWARE**.
+> ⚠️ v0.2 firmware changes and all v0.3 device-power backends are **UNTESTED ON HARDWARE**.
+
+## Changes in v0.3 (Timer tab, backward compatible)
+- `protocol` is now `"0.3"`. Nothing that existed in v0.2 changed: `pc.wake` with `"target": null` (VictorSuite) and the `pc.power_pulse` approval flow work exactly as before.
+- New commands for `/api/command` and timer steps. `target` is a device id from the hub config's `[devices.<id>]`:
+
+| Command | Approval | Effect |
+|---|---|---|
+| `charge.on` / `charge.off` | no | enable/disable charging through the device's `charge` backend |
+| `device.power_on` | no | best-effort power-on through the `power_on` backend (see caveats) |
+| `device.power_off` | **yes** | power the device off through the `power_off` backend |
+
+  On `/api/command`, an unknown device, a device without that backend, or a backend failure all return **502** with the reason. In a timer they are rejected at create/update time with **422**.
+- New endpoints, all with Bearer auth:
+  - `GET /api/devices`: `{devices:[{id,label,charge_backend,power_on_backend,power_off_backend}]}`
+  - `GET /api/timers`: `{timers:[Timer], events:[last 20]}`. `POST /api/timers` creates one (201). `GET|PUT|DELETE /api/timers/{id}`.
+  - `POST /api/timers/{id}/enable` and `/disable`. `POST /api/timers/{id}/run` returns 202, or **409** if it is already running.
+- `/ws` frames gain a `timers` key with the same object as `GET /api/timers`. Clients that ignore unknown keys are unaffected.
+- `macro.step` envelopes may now carry the device commands.
+
+### Timer object
+```json
+{"name":"Night charge","enabled":true,
+ "schedule":{"kind":"daily","time":"23:00"},
+ "steps":[{"command":"charge.off","target":"phone1","delay_s":0},
+          {"command":"charge.off","target":"phone2","delay_s":10},
+          {"command":"device.power_off","target":"phone3","delay_s":30}],
+ "approval_token":"<only when gated steps are added or changed>"}
+```
+- `schedule.kind`: `once` (`at`, ISO 8601, naive means hub local time), `daily` (`time` "HH:MM"), `weekly` (`time` plus `days`, 0 = Mon … 6 = Sun), or `manual` (only `run`).
+- Steps run in order. `delay_s` (0–21600) is waited **before** the step. The first failing step stops the sequence.
+- Server fields: `id, preapproved, preapproved_at, next_run, last_run, last_result, running, current_step` (Unix-seconds timestamps).
+- Missed fire times (hub down) are **skipped, not replayed**. A `once` timer disables itself after firing.
+- Timers persist to `[hub] timers_file` (atomic JSON write).
+- Events: `timer_started`, `step_ok`, `step_failed`, `timer_finished`. Each run is also written to the audit log.
+
+### Approval in timers (design choice: pre-approval)
+Approval tokens last 30 s, so an unattended timer cannot get one at fire time. Instead:
+1. When a timer contains gated steps (`device.power_off`, `pc.power_pulse`), create/update needs `approval_token` from `POST /api/approve/timer.arm`. Without it the hub returns **403**.
+2. The hub records `timer_preapproved` in the audit log, with the gated commands and the full step list. It then marks the timer `preapproved`.
+3. A `PUT` with identical steps keeps the pre-approval. Changing the steps of a gated timer needs a new token.
+4. At run time, a gated step on a timer that is not pre-approved is **blocked** (`step_failed`, audit `rejected` with `reason: no_approval`).
 
 ## Changes in v0.2 (notes for VictorSuite and other clients)
 - **Hub REST is backward compatible.** `pc.wake` with `"target": null` over `:8787` works exactly as in v0.1 (no approval, same `{wol_bytes, relayed}` result). `pc.power_pulse` still uses the same approval flow.
@@ -35,6 +76,9 @@ POST either envelope to `/api/command`. A `macro.step` is unwrapped and its inne
 | `node.list` | no | Known nodes from heartbeats/status | `{nodes:[...]}` |
 | `pc.wake` | no | Hub sends WOL broadcast **and** relays `wake_pc` to the wake node | `{wol_bytes, relayed}` |
 | `pc.power_pulse` | **yes** | Relays `power_pulse` (ms ≤ 300) to the wake node → PC817 → PWR_SW | `{ms, relayed}` |
+| `charge.on` / `charge.off` | no | v0.3, see above (`target` = device id) | backend result |
+| `device.power_on` | no | v0.3 | backend result |
+| `device.power_off` | **yes** | v0.3 | backend result |
 
 ## Approval flow
 1. `POST /api/approve/pc.power_pulse` → `{approval_token, ttl_s}`. The token is single-use and expires after `approval_ttl_s` (default 30 s).

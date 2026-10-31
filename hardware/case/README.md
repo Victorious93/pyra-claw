@@ -131,7 +131,7 @@ For 3 old Nexus phones (5, 5X, 6P) standing on edge, used as a compute cluster.
 | 4 | Fan self-tap screws (usually included) or M3 screws | Case fan |
 | 1 | **80 × 80 × 25 mm 5 V USB fan**, or 2 × 40 × 40 mm 5 V fans | Rack shroud |
 | 4–8 | Fan screws (usually included) | Rack fan |
-| 2 | M3 × 12 mm self-tap screws | Shroud to rack |
+| 2 | M2.5 × 12 mm self-tap screws | Shroud to rack (through the rack frame into the shroud) |
 | 8 | 10 mm stick-on rubber bumpers, 1.5–3 mm tall | Foot pockets (4 case + 4 rack) |
 | 3 | Short right-angle USB cables | Phones to Pi (or a powered hub) |
 | 1 | 5 mm LED + resistor (optional) | Status LED |

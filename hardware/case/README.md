@@ -1,97 +1,146 @@
-# Pyra Claw case v1 (Pi 5 + ESP32 + PC817 + Coral)
+# Pyra Claw case v2 (Pi 5 + ESP32 + PC817 + Coral) and the Nexus phone rack
 
-Parametric OpenSCAD enclosure: one base, one screw-on lid and an optional ESP32 bracket.
-**It has not been test-printed or fit-checked against real hardware.** Treat every number below as a starting point, and print a tolerance coupon first.
+Parametric OpenSCAD enclosure, restyled from v1. **None of v2 has been test-printed or fit-checked against real hardware: not the case, the lid inlays, the fan parts, or the phone rack.** Print a tolerance coupon and a draft-quality base before committing a full-quality print.
 
-Tags: **[Certain]** = taken from an official drawing or datasheet. **[Likely]** = common practice or a secondary source. **[Guessing]** = design estimate; measure it.
+Tags: **[Certain]** = official drawing or datasheet. **[Likely]** = common practice or a secondary source. **[Guessing]** = design estimate; measure it.
 
-![assembly](preview/assembly.png)
+![assembly](preview/v2-assembly-3q.png)
+![docked rack](preview/v2-rack-docked.png)
 
+## Files
 | File | What it is |
 |---|---|
 | `params.scad` | **All dimensions.** Edit here only. |
-| `case.scad` | Geometry modules (`base()`, `lid()`, `esp32_bracket()`) |
-| `base.scad`, `lid.scad`, `esp32-bracket.scad` | One part per file, for CLI renders |
-| `preview-assembly.scad` | Exploded view with ghost boards |
-| `stl/*.stl` | Pre-rendered parts (OpenSCAD 2021.01) |
-| `preview/*.png` | Render previews |
+| `case.scad` | `base()`, `lid()`, `lid_inlay_wordmark()`, `lid_inlay_claws()`, `fan_guard()`, `esp32_bracket()` |
+| `rack.scad` | `rack()`, `shroud()`, `shroud_print()` for the phone rack |
+| `base.scad`, `lid.scad`, `lid-mmu-body.scad`, `lid-inlay-*.scad`, `fan-guard.scad`, `esp32-bracket.scad`, `phone-rack.scad`, `phone-rack-shroud.scad` | One part per file, for CLI renders |
+| `preview-assembly.scad` | `view="docked"`, `"exploded"`, or `"airflow"` (with ghost boards, fans, phones, and arrows) |
+| `preview-from-stl.scad` | Clean colored previews built from the STLs |
+| `stl/*.stl`, `preview/*.png` | Pre-rendered with OpenSCAD 2021.01 |
 
 Re-render:
 ```sh
-for p in base lid esp32-bracket; do openscad -o stl/$p.stl $p.scad; done
-openscad --render --imgsize=1200,900 --camera=0,0,0,55,0,25,0 --viewall --autocenter -o preview/assembly.png preview-assembly.scad
+for p in base lid lid-mmu-body lid-inlay-wordmark lid-inlay-claws esp32-bracket fan-guard phone-rack phone-rack-shroud; do openscad -o stl/$p.stl $p.scad; done
+openscad --preview --imgsize=1600,1200 --camera=52,60,12,58,0,325,330 --colorscheme=Tomorrow -o preview/v2-assembly-3q.png preview-from-stl.scad
 ```
+**Font:** the wordmark uses *Orbitron ExtraBold* (Google Fonts, OFL). If it isn't installed, OpenSCAD silently falls back to a default font. Install it, or change `font` in `params.scad`. [Certain]
 
-## Overall size
-- Base: **105.8 × 126.8 × 34.4 mm** (box 96.8 × 117.8 mm plus Ø9 corner screw lugs). Interior 92 × 113 × 32 mm.
-- Lid: 105.8 × 126.8 mm, 2.4 mm plate + 3 mm locating lip (5.4 mm total).
-- Assembled height: about **36.8 mm**.
-- ESP32 bracket: 59.6 × 32.6 × 13.1 mm.
+## Sizes (from the rendered STLs) [Certain for the model; prints will vary]
+- Base: **102.8 × 123.8 × 34.4 mm**, or 126.8 mm deep including the two 3 mm dock rails on the back wall. Interior 98 × 119 × 32 mm.
+- Lid: 102.8 × 123.8 × 3.0 mm, a flat cap with no lip.
+- **Assembled: 102.8 × 123.8 × 37.4 mm** (v1 was 105.8 × 126.8 × 36.8 including lugs).
+- ESP32 bracket 59.6 × 32.6 × 13.1 mm. Fan guard 44 × 44 × 4.6 mm.
+- Phone rack: **211.3 × 78.6 × 70 mm**. Shroud: 81 × 80 × 38 mm. Each piece fits a 220 × 220 mm bed.
+
+## Changes from v1
+- **Removed the external screw lugs.** The lid screws into internal corner bosses that are hulled into the corners. To make room, the interior grew 3 mm per side. [Certain]
+- **Rounded hull body.** R6 vertical edges, a 1.6 mm top fillet, and a 1 mm bottom chamfer, which also helps with elephant's foot. [Certain]
+- **Lid:**
+  - Prints **face up** as a flat cap.
+  - Inset front panel with a raised **"PYRA CLAW"** wordmark and three angled **claw-slash** grooves, inspired by `assets/logo.png` but drawn in OpenSCAD.
+  - **Hex grille** over the Pi Active Cooler.
+  - A slot grille for the new case fan, plus claw-slash exhaust over the Coral.
+  - All underside features are shallow recesses, so it needs no supports. [Certain]
+- **Slash vents:**
+  - Claw-slash intake vents in the right and front walls.
+  - Angled slash vents at the left-rear and in the floor under the Pi. [Certain]
+- **Chamfered port cutouts** with a 1 mm chamfer, each opening enlarged by 2 mm. [Certain]
+- **Recessed foot pockets:** Ø10.5 × 1.2 mm, for 10 mm stick-on bumpers. [Certain]
+- **Pi ports sit about 3 mm further back from the outer face** because the interior grew. Most cables should still seat, but **check that USB-C, micro-HDMI, and Ethernet plugs reach**. [Guessing]
+- New parts: a 40 mm case fan mount, a fan guard, two-color inlay STLs, two dovetail dock rails, and the phone rack with its fan shroud.
 
 ## Layout
-- **Pi 5** sits in the front-left on four M2.5 standoffs, 5 mm high. Openings:
-  - Front wall: USB-C power and 2× micro-HDMI (one slot).
-  - Right wall: Ethernet, 2× USB3 and 2× USB2 (one opening).
-  - Left wall: microSD (under the board).
-  - Floor: intake slots.
-  - Lid: slotted Ø40 grille above the Active Cooler fan.
-- **ESP32 DevKit** sits behind the Pi, in a bracket with corner ledges that lift the PCB 10 mm so the header pins clear. The bracket is held by 2 screws from under the base. Its USB opening is in the left wall.
-- **Perfboard** (PC817 + resistor, 30 × 20 mm default) sits on 4 self-tap standoffs at the right of the same strip.
-  - 6 × 4 mm exit in the right wall for the 2-wire lead to the PC's front-panel PWR_SW header.
-  - Optional Ø5.2 status-LED hole in the lid above it.
-- **Coral USB Accelerator** stands on its long edge in a rail slot along the back wall. A 14 × 10 mm pass-through in the right wall lets its USB-C cable reach the Pi's USB3 port from outside (the Pi's USB ports face outward).
-- **"PYRA CLAW"** is debossed 0.8 mm into the lid's outer face.
+The board placement is the same as v1: Pi 5 front-left, ESP32 and perfboard behind it, and the Coral on edge along the back wall. See the v1 source table below; nothing there changed. Openings, by wall:
+- Front wall: USB-C and micro-HDMI.
+- Right wall: Ethernet/USB, the Coral cable pass-through, and the PWR_SW lead slot.
+- Left wall: microSD and ESP32 USB.
+- Lid: status-LED hole.
 
-## Source dimensions
-| Item | Value | Source | Tag |
-|---|---|---|---|
-| Pi 5 PCB | 85 × 56 mm | [RP-008347-DS Raspberry Pi 5 mechanical drawing](https://pip-assets.raspberrypi.com/categories/892-raspberry-pi-5/documents/RP-008347-DS-1-raspberry-pi-5-mechanical-drawing.pdf) | [Certain] |
-| Pi 5 holes | 4 × Ø2.7, 58 × 49 mm pattern, 3.5 mm from the edges | same drawing | [Certain] |
-| Pi 5 port centres | USB-C x=11.2; micro-HDMI x=25.8 / 39.2; right edge y=10.2 / 29.1 / 47.0 | same drawing | [Certain] |
-| Port housing sizes / overhang | simplified as one opening per wall | estimate | [Guessing] |
-| microSD position | left short edge, underside, near mid-width | drawing + board photos | [Likely] |
-| Active Cooler envelope | 63.5 × 42.5 × 13.7 mm | Raspberry Pi Active Cooler drawing (quoted in [this enclosure write-up](https://smith.hexdocs.pm/raspberry-pi-enclosure-notebook.html)) | [Likely] |
-| Fan centre | ~(42, 34) mm in board coords; the grille is oversized to allow for error | estimate | [Guessing] |
-| Coral USB Accelerator | 65 × 30 × 8 mm, USB-C | [Coral datasheet](https://gweb-coral-full.uc.r.appspot.com/docs/accelerator/datasheet/), [product page](https://gweb-coral-full.uc.r.appspot.com/products/accelerator/) | [Certain] |
-| ESP32 DevKit 38-pin | ~55 × 28 mm, varies by vendor | [Espressif ESP32-DevKitC docs](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32/esp32-devkitc/user_guide.html), vendor listings | [Likely] — measure yours |
-| Perfboard | 30 × 20 mm default | your board | [Guessing] |
-| M2.5 heat-set insert hole | Ø3.6 × 5 mm | typical for M2.5 × 4 inserts; check your insert's datasheet | [Guessing] |
+![ports side](preview/v2-ports-side.png)
+![bottom](preview/v2-bottom.png)
 
-## Print settings
+## Printing
 | Setting | Value | Tag |
 |---|---|---|
-| Material | **PETG** (the Pi 5 runs warm; PLA softens around 55–60 °C) | [Likely] |
-| Layer height | 0.20 mm | [Likely] |
-| Perimeters | 3 (walls are 2.4 mm) | [Likely] |
-| Infill | 20 % gyroid (bracket 30 %) | [Likely] |
-| Supports | **None.** The base prints floor-down. The lid prints **outer face down** (the STL is already oriented that way; the lettering faces the bed). The bracket prints plate-down. | [Likely] |
-| Bridges | The port openings bridge up to about 45 mm (front slot) and 54 mm (right opening). Most PETG profiles manage this; if yours sags, lower the bridge fan/speed settings. | [Guessing] |
-| Brim | 3–5 mm on the base helps PETG corners stay flat | [Likely] |
+| Material | PETG for everything (the Pi 5 and the phones run warm; PLA softens around 55–60 °C) | [Likely] |
+| Layer / perimeters / infill | 0.2 mm, 3 perimeters (walls 2.4 mm), 20 % gyroid | [Likely] |
+| Supports | **None.** The base prints floor-down. The lid and guard print as exported. The rack prints floor-down. Print the shroud with `phone-rack-shroud.stl`, which is already oriented flange-down. | [Likely] |
+| Bridges | Port openings up to about 56 mm. If they sag, slow down the bridges. | [Guessing] |
+| Brim | 3–5 mm for the rack, which is long and tall. | [Likely] |
 
-## BOM
+### Optional two-color lid
+- **Single extruder (layer swap):** print `lid.stl` and add a filament change (M600 / "Pause/Color change") at **z = 2.2 mm**, which is the top of the inset panel floor (`lid_t - panel_d`). Only the raised wordmark is above that height, so it comes out in the second color. The claw grooves stay the base color. [Likely]
+- **Multi-material (AMS / MMU / IDEX):** load `lid-mmu-body.stl`, `lid-inlay-wordmark.stl`, and `lid-inlay-claws.stl` **as parts of one object**. They share one coordinate origin, so don't let the slicer drop them to the bed separately. Assign the accent filament to both inlays. The claw inlay fills the 0.8 mm grooves flush. The wordmark inlay is the 0.8 mm raised lettering. [Likely]
+
+![lid](preview/v2-lid-top.png)
+
+## Airflow and fans
+![airflow](preview/v2-airflow.png)
+
+```
+ CASE (top view)                          RACK (side view)
+ +-------------------------+              fan ->| shroud |  phone  phone  phone | slotted back ->
+ |  [Coral]~~>  (40mm FAN) |  ^ exhaust       ==>|  duct  |==> lanes 12mm gaps ==>|==> out
+ |   ~~~>  ^ out of lid    |                    ==>|        |==>                  ==>|
+ |  [Pi 5 + Active Cooler] |<== intake (right wall slashes)
+ +------------^------------+
+              intake (front slashes + floor slots)
+```
+- **Case:** cool air enters through the front and right-wall claw slashes and the floor slots. It crosses the Active Cooler and the Coral, then leaves through the 40 mm fan mounted under the lid over the ESP32 strip, which blows **out** through the lid. The Active Cooler's own fan pulls from the lid hex grille. Intake and exhaust are on opposite sides of the hot parts. [Guessing about real flow; geometry Certain]
+- **Case fan:** `case_fan = 40` (default, 40 × 40 × 10 mm, 5 V) or `30`.
+  - Screw spacing is **32 mm for 40 mm fans** ([Noctua NF-A4x10 5V spec](https://www.noctua.at/en/products/nf-a4x10-5v/specifications)) and **24 mm for 30 mm fans** ([Sunon size and hole-pitch table](https://www.sunon.cz/nase-novinky/rozmery-ventilatoru-tabulka-velikosti-a-roztece-der/)). [Certain]
+  - The fan sits in a 0.6 mm underside seat and is held by self-tap screws from above.
+  - The claw-slot grille slots are 2.6 mm, which is finger-safe. [Likely]
+  - Print `fan-guard.stl` for an extra guard on 3 mm standoffs. [Certain]
+- **Wire channel:** a 1.2 mm groove under the lid runs from the fan to the Pi GPIO header. Connect to **pin 4 (5 V) and pin 6 (GND)**, or use a fan with the Pi 5 4-pin JST fan connector if the Active Cooler isn't using it. [Likely; the Active Cooler normally occupies that connector]
+- **Rack fan:** `rack_fan = "80"` (default, 80 × 80 × 25 mm, **71.5 mm hole spacing**, [Noctua NF-A8 5V spec](https://www.noctua.at/en/products/nf-a8-5v/specifications)) or `"2x40"` (2 × 40 mm, 32 mm spacing).
+  - The fan screws to the **ducted shroud**. The shroud spreads air over all three phone lanes and exits through the slotted far wall.
+  - The shroud attaches with 2 top self-tap screws and 2 alignment pegs. [Certain]
+- **5 V vs 12 V:**
+  - A 5 V fan can run from a Pi USB port or a USB charger. The Noctua 5 V models ship with a USB adaptor. [Certain per Noctua]
+  - A 12 V fan needs a separate 12 V supply, or a 5→12 V boost cable at reduced speed.
+  - **Never put a 5 V fan on 12 V.** Noctua explicitly warns against this. [Certain]
+- **Temperature-based speed control: not implemented.** [Guessing] The Pi 5 firmware already ramps its own fan header by temperature. A 4-pin PWM fan on GPIO (for example GPIO18 hardware PWM through a logic-level MOSFET for a 3-pin fan) could follow `vcgencmd measure_temp` with a small script, or with the `gpio-fan` / `pwm-fan` device-tree overlays. Untested here.
+
+## Nexus phone rack
+For 3 old Nexus phones (5, 5X, 6P) standing on edge, used as a compute cluster.
+- **Slots are parametric.** The default is sized for the largest phone in each axis plus a case-free margin: 1.5 mm lengthwise, 0.8 mm across. That gives **slot 10.19 × 162.3 mm**. To use your own measured size, set `phone_override = [L, W, T]` in `params.scad`. [Certain for the math]
+
+| Phone | Size (L × W × T mm) | Source | Tag |
+|---|---|---|---|
+| Nexus 5 | 137.84 × 69.17 × 8.59 | [PhoneArena](https://www.phonearena.com/phones/Google-Nexus-5_id7993), [GSMArena compare](https://www.gsmarena.com/compare.php3?idPhone1=7588&idPhone2=7556&idPhone3=5705) | [Certain] |
+| Nexus 5X | 147.0 × 72.6 × 7.9 | [Google Nexus help](https://support.google.com/nexus/answer/6102470) | [Certain] |
+| Nexus 6P | 159.3 × 77.8 × 7.3 | [Google Nexus help](https://support.google.com/nexus/answer/6102470) | [Certain] |
+
+- **Air gaps:** 12 mm between phones and 6 mm at the walls (requirement: ≥10 mm). Each gap lane has floor slash vents. [Certain]
+- **Back:** an open slotted far wall with claw slashes, plus a cable slit per lane. [Certain]
+- **USB cables:** every slot has a channel at the bottom. The channels lead to a tray and a cross channel that exits on the case-facing side toward the Pi USB ports. Leave about 25 mm (`plug_clear`) for the plug at the bottom edge. [Guessing that right-angle USB-C/micro-USB plugs fit; check yours]
+- **Docking:** the rack slides **down** over the two dovetail rails on the case's back wall, and lifts off to remove it. No screws are needed. [Certain for geometry, Guessing for fit; adjust `fit` if it's too tight]
+- **Two pieces:** the rack (211.3 mm long) and the shroud each print supports-free within a 220 mm bed. [Certain for size, Likely for no supports]
+
+> ⚠️ **Thermal and battery safety.** Run the phones **without cases**, and keep them at a **reduced charge** (around 40–60 %, using a charge limiter or a smart plug if possible). Old lithium batteries that are held at 100 % and kept warm can **swell**. Check the phones regularly, and **stop using any phone whose back or screen starts to lift.** Never block the fan. Don't leave the cluster running unattended in an enclosed space. PETG softens at about 75–80 °C, so the rack is not a fire barrier. [Likely]
+
+## BOM (generic specs; no prices)
 | Qty | Part | Use |
 |---|---|---|
-| 8 | M2.5 × 4 mm heat-set insert (OD ~3.5–4) | 4 Pi standoffs + 4 lid corner lugs (or set `use_inserts=false` for self-tap) |
-| 4 | M2.5 × 6 mm screw | Pi 5 to standoffs (5 mm if your Active Cooler leaves less room) |
-| 4 | M2.5 × 8 mm pan/socket screw | Lid to base |
-| 2 | M2.5 × 8 mm screw (self-tapping for plastic preferred) | ESP32 bracket, from under the base |
-| 4 | M2 or M2.5 × 6 mm self-tap screw | Perfboard to standoffs (drill the perfboard corners) |
-| 4 | Rubber feet ≥ 3 mm tall | Clear the bracket screw heads under the base |
+| 8 | M2.5 × 4 mm heat-set insert | 4 Pi standoffs + 4 lid corner bosses |
+| 4 + 4 | M2.5 × 6 mm and M2.5 × 8 mm screws | Pi to standoffs, and lid to bosses |
+| 2 | M2.5 × 8 mm self-tap screws | ESP32 bracket |
+| 4 | M2/M2.5 × 6 mm self-tap screws | Perfboard |
+| 1 | **40 × 40 × 10 mm 5 V fan** (2-wire or 3-wire, roughly 0.05–0.1 A), or a 30 × 30 mm fan with `case_fan=30` | Case exhaust |
+| 4 | Fan self-tap screws (usually included) or M3 screws | Case fan |
+| 1 | **80 × 80 × 25 mm 5 V USB fan**, or 2 × 40 × 40 mm 5 V fans | Rack shroud |
+| 4–8 | Fan screws (usually included) | Rack fan |
+| 2 | M2.5 × 12 mm self-tap screws | Shroud to rack (through the rack frame into the shroud) |
+| 8 | 10 mm stick-on rubber bumpers, 1.5–3 mm tall | Foot pockets (4 case + 4 rack) |
+| 3 | Short right-angle USB cables | Phones to Pi (or a powered hub) |
 | 1 | 5 mm LED + resistor (optional) | Status LED |
-| 1 | Short USB-C to USB-A cable (≈10–15 cm, right-angle helps) | Coral to Pi USB3 |
 
-## Assembly order
-1. Print the coupon first: crop `base()` to one corner lug and one standoff, and check the insert fit and the 0.3 mm lid fit.
-2. Press the 8 heat-set inserts in (soldering iron ~220–240 °C for PETG).
-3. Screw the ESP32 bracket to the floor from underneath (2 screws), then stick the rubber feet on.
-4. Fit the Active Cooler to the Pi 5 and insert the microSD. Screw the Pi down on its 4 standoffs.
-5. Mount the perfboard. Route the 2-wire PWR_SW lead out through the right-wall slot, with a cable tie inside for strain relief.
-6. Drop the ESP32 into the bracket's corner ledges (a dab of hot glue if it rattles). Wire it to the perfboard.
-7. Slide the Coral into the back rail slot. Pass its cable out through the right-wall pass-through and into a Pi USB3 port.
-8. Fit the LED into the lid if you're using one. Put the lid on (the lip locates it) and fit the 4 M2.5 × 8 corner screws.
-
-## Caveats
-- **Not test-printed.** Port openings and the fan position come from drawing centres plus estimated housing sizes. Check them against your board with calipers before printing.
-- The ESP32 is held only by corner ledges, and the lid sits well above it. Add glue or a zip tie if you need it held firmly.
-- The Coral cable route is external (out the right wall and back into the USB3 port) because the Pi's USB ports face outward.
-- No airflow or thermal testing has been done.
+## v1 source dimensions (unchanged)
+| Item | Value | Source | Tag |
+|---|---|---|---|
+| Pi 5 PCB / holes / port centres | 85 × 56 mm; 58 × 49 mm hole pattern | [RP-008347-DS](https://pip-assets.raspberrypi.com/categories/892-raspberry-pi-5/documents/RP-008347-DS-1-raspberry-pi-5-mechanical-drawing.pdf) | [Certain] |
+| Active Cooler envelope | 63.5 × 42.5 × 13.7 mm | secondary write-up | [Likely] |
+| Coral USB Accelerator | 65 × 30 × 8 mm | [Coral datasheet](https://gweb-coral-full.uc.r.appspot.com/docs/accelerator/datasheet/) | [Certain] |
+| ESP32 DevKit 38-pin | ~55 × 28 mm | Espressif docs and vendors | [Likely]; measure yours |
+| Port housing sizes, insert hole Ø3.6 | estimates | n/a | [Guessing] |

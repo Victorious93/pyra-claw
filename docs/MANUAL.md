@@ -54,9 +54,12 @@ flowchart LR
 
 ## 5. Install
 ![Setup](../assets/visuals/05c_setup_steps.png)
-1. **Pi:** Flash Bookworm 64-bit, then `git clone` this repo and run `sudo ./hub/install.sh`. Save the printed token. Edit `/etc/pyra-claw/config.toml` and set `pc.mac`, then run `sudo systemctl restart pyra-hub`.
+1. **Pi:** Flash Bookworm 64-bit, then `git clone` this repo and run `sudo ./hub/install.sh`. Save the printed token. The installer (safe to re-run; it never overwrites existing secrets):
+   - configures Mosquitto for the network (`/etc/mosquitto/conf.d/pyra-claw.conf`: `listener 1883`, `allow_anonymous false`, password file `/etc/mosquitto/pyra-claw.passwd`) and creates MQTT users `pyra-hub` and `pyra-node`;
+   - writes the hub's MQTT login and the node `hub_token` into `config.toml`, and a root-only copy of the node secrets to `/etc/pyra-claw/node-credentials`;
+   - enables **ufw** (default on): allows SSH (`22/tcp`, or `PYRA_SSH_PORT`) first, then `8787/tcp` and `1883/tcp` only from the Pi's directly connected subnets (LAN, USB tether), denies other inbound. Override the subnets with `--allow-from "192.168.1.0/24 192.168.42.0/24"` (or `PYRA_ALLOW_FROM`), or skip the firewall with `--no-ufw` (or `PYRA_NO_UFW=1`). If the USB tether comes up after install, re-run with `--allow-from` including its subnet. Edit `/etc/pyra-claw/config.toml` and set `pc.mac`, then run `sudo systemctl restart pyra-hub`.
 2. **PC:** Enable Wake-on-LAN in BIOS/UEFI and in the NIC driver (Windows: *Wake on Magic Packet*). Turn off Fast Startup if WOL from S5 fails.
-3. **ESP32:** Flash once with `pio run -t upload` (from `firmware/esp32-wake`). Then provision Wi-Fi, the hub IP and the PC MAC over USB serial, no rebuild needed: `python tools/provision.py /dev/ttyUSB0 provision ssid=... pass=... broker=192.168.4.1 pc_mac=AA:BB:CC:DD:EE:FF`, then `... reboot`. The node accepts commands for 10 s after boot, or any time while no Wi-Fi SSID is set. See [PROVISIONING.md](PROVISIONING.md) (UNTESTED ON HARDWARE). Alternatively, copy `include/config.example.h` to `config.h` for compile-time defaults; provisioned values override them.
+3. **ESP32:** Flash once with `pio run -t upload` (from `firmware/esp32-wake`). Then provision Wi-Fi, the hub IP, the PC MAC, and the MQTT login and `hub_token` from `/etc/pyra-claw/node-credentials` over USB serial, no rebuild needed: `python tools/provision.py /dev/ttyUSB0 provision ssid=... pass=... broker=192.168.4.1 pc_mac=AA:BB:CC:DD:EE:FF mqtt_user=pyra-node mqtt_pass=... hub_token=...`, then `... reboot`. The node needs internet NTP for signed pulses. The node accepts commands for 10 s after boot, or any time while no Wi-Fi SSID is set. See [PROVISIONING.md](PROVISIONING.md) (UNTESTED ON HARDWARE). Alternatively, copy `include/config.example.h` to `config.h` for compile-time defaults; provisioned values override them.
 4. **Phone:** Install the APK from the CI artifact. Turn on USB tethering (Pi usually reaches it via `usb0`; set the hub URL accordingly) or join the same Wi-Fi. Enter the hub URL and token.
 
 ## 6. Usage
@@ -73,10 +76,13 @@ flowchart LR
 | `pc.wake` | no | WOL from the hub, plus `wake_pc` on the node |
 | `pc.power_pulse` | **yes** | 300 ms PWR_SW pulse |
 
-Full spec: [PROTOCOL.md](PROTOCOL.md).
+Full spec: [PROTOCOL.md](PROTOCOL.md) (v0.2).
+
+### Standalone mode (no Pi needed) ⚠️ UNTESTED ON HARDWARE
+The ESP32 serves HTTP on port 80 (mDNS `pyra-<node_id>.local`): `GET /health` (no auth), `POST /wake` (`Authorization: Bearer <hub_token>`, max 1 per 10 s), `POST /pulse` (HMAC-signed body only). The Android app does not use these yet. See PROTOCOL.md.
 
 ## 8. Safety
-- `pc.power_pulse` needs a single-use approval token (30 s TTL) from the hub **and** the hold-to-confirm gesture on the phone.
+- `pc.power_pulse` needs a single-use approval token (30 s TTL) from the hub **and** the hold-to-confirm gesture on the phone. The hub then HMAC-signs the command; the node checks the signature, a ±30 s timestamp window and replayed ids, and refuses pulses if it has no NTP time (fail closed).
 - The firmware hard-caps a pulse at 300 ms, so a larger value from the hub is ignored. It also enforces a cooldown, and GPIO26 stays LOW at boot.
 - Every command is written to the audit log at `/var/lib/pyra-claw/audit.jsonl`.
 - The auth token gates every API call. Keep the hub on a trusted network or the USB tether, and never expose port 8787 to the internet.
@@ -85,7 +91,8 @@ Full spec: [PROTOCOL.md](PROTOCOL.md).
 | Symptom | Check |
 |---|---|
 | App says 401 | Token is wrong. Compare it with `/etc/pyra-claw/config.toml` |
-| Node shows offline | ESP32 Wi-Fi/MQTT settings in `config.h`. Run `mosquitto_sub -t 'pyra/#' -v` on the Pi |
+| Node shows offline | ESP32 Wi-Fi/MQTT settings (`mqtt_user`/`mqtt_pass` must match `node-credentials`). Run `sudo bash -c 'source /etc/pyra-claw/node-credentials; mosquitto_sub -u "$HUB_MQTT_USER" -P "$HUB_MQTT_PASS" -t "pyra/#" -v'` on the Pi. Check `sudo ufw status` |
+| Pulse rejected (`power_pulse:rejected_*` in status) | `no_time_sync`: node has no internet NTP. `bad_sig`: `hub_token` differs between hub and node. `stale_ts`: Pi clock is off. See PROTOCOL.md |
 | WOL doesn't wake the PC | BIOS WOL is off, Fast Startup is on, MAC is wrong, or the PC is on a different subnet |
 | Pulse does nothing | PWR_SW polarity. Swap the PC817 pins 3 and 4 |
 | Hub won't start | `journalctl -u pyra-hub -e`. The token must not be `CHANGE_ME` |

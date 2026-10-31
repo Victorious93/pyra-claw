@@ -17,6 +17,8 @@ def run() -> None:
     cfg = load_config()
     if cfg.auth_token == "CHANGE_ME":
         raise SystemExit("Set hub.auth_token in config.toml before starting")
+    if not cfg.node.hub_token or cfg.node.hub_token.startswith("CHANGE_ME"):
+        logging.warning("node.hub_token not set: pc.power_pulse will be refused (503)")
     bridge = MqttBridge(cfg.mqtt, Registry())
     bridge.start()
     try:

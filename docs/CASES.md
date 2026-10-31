@@ -9,6 +9,8 @@ Reference board sizes:
 - 0.96" SSD1306 OLED module: board about 27 × 27 mm, visible area about 22 × 11 mm. Sizes differ by vendor [Guessing].
 - ESP32 DevKitC-style board: about 55 × 28 mm. PC817 1–2 channel breakout: about 20 × 15 mm. Both vary by vendor [Guessing].
 
+**Modelled case:** [hardware/case/](../hardware/case/README.md) — parametric OpenSCAD v1 (Pi 5 + ESP32 + PC817 + Coral, not yet test-printed).
+
 ---
 
 ## 1. Hexagonal Pi 5 hub enclosure (claw vent fins + OLED window)

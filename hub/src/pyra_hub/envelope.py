@@ -8,8 +8,20 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-KNOWN_COMMANDS = {"hub.status", "node.list", "pc.wake", "pc.power_pulse"}
-APPROVAL_REQUIRED = {"pc.power_pulse"}
+KNOWN_COMMANDS = {
+    "hub.status",
+    "node.list",
+    "pc.wake",
+    "pc.power_pulse",
+    # v0.3: downstream device charge / power control (target = device id)
+    "charge.on",
+    "charge.off",
+    "device.power_on",
+    "device.power_off",
+}
+# Destructive hardware actions sit behind approval gates (fleet rule).
+APPROVAL_REQUIRED = {"pc.power_pulse", "device.power_off"}
+DEVICE_COMMANDS = {"charge.on", "charge.off", "device.power_on", "device.power_off"}
 
 
 class RemoteCommand(BaseModel):

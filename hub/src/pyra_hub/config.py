@@ -7,6 +7,8 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .power import DeviceConfig
+
 
 @dataclass
 class MqttConfig:
@@ -40,6 +42,9 @@ class HubConfig:
     mqtt: MqttConfig = field(default_factory=MqttConfig)
     pc: PcConfig = field(default_factory=PcConfig)
     node: NodeConfig = field(default_factory=NodeConfig)
+    # v0.3: timers file (JSON) and downstream devices for charge / power control
+    timers_file: str = ""  # empty = in-memory only (timers lost on restart)
+    devices: dict[str, DeviceConfig] = field(default_factory=dict)
 
 
 def load_config(path: str | os.PathLike[str] | None = None) -> HubConfig:
@@ -49,7 +54,11 @@ def load_config(path: str | os.PathLike[str] | None = None) -> HubConfig:
         return HubConfig()
     data = tomllib.loads(p.read_text())
     hub = data.get("hub", {})
+    devices = {
+        dev_id: DeviceConfig(id=dev_id, **spec) for dev_id, spec in data.get("devices", {}).items()
+    }
     return HubConfig(
+        devices=devices,
         **{k: v for k, v in hub.items() if k in HubConfig.__dataclass_fields__},
         mqtt=MqttConfig(**data.get("mqtt", {})),
         pc=PcConfig(**data.get("pc", {})),

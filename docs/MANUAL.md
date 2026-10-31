@@ -100,3 +100,72 @@ The ESP32 serves HTTP on port 80 (mDNS `pyra-<node_id>.local`): `GET /health` (n
 ## 10. Help
 - Open an issue in this repo.
 - See `docs/PROTOCOL.md` and `docs/CASES.md`, and the Help tab in the app.
+
+## 11. Timers and device power (v0.3) ⚠️ UNTESTED ON HARDWARE / PHONES
+Nothing in this section has been tested on real hardware or phones. The hub logic has unit tests with a mock backend only.
+
+Claim tags: **[Certain]** means verified from a cited source or the code. **[Likely]** means well supported but not verified on our hardware. **[Guessing]** means plausible but unverified.
+
+### 11.1 How it works
+- **The hub is the scheduler [Certain].** Timers are stored in `[hub] timers_file` and run on the Pi even when no phone is connected. The app only edits timers and shows their state.
+- A timer is a schedule (once, daily, weekly or manual) plus a sequence of steps. Each step is `charge.on`, `charge.off`, `device.power_on`, `device.power_off` or `pc.wake`, with a delay before it. Sequences let you act on devices one by one, for example "charge.off phone1, wait 10 s, charge.off phone2".
+- If the hub is down at fire time, that run is skipped, not replayed.
+- **Approval:** `device.power_off` (and `pc.power_pulse`) are gated.
+  - When you save a timer that contains gated steps, the app requests a one-time `timer.arm` approval. The hub writes a `timer_preapproved` audit entry listing the steps.
+  - If you change those steps, the hub asks for approval again.
+  - Gated steps on a timer that is not pre-approved are blocked at run time.
+  - See [PROTOCOL.md](PROTOCOL.md#approval-in-timers-design-choice-pre-approval).
+
+### 11.2 Configuring devices (hub `config.toml`)
+```toml
+[hub]
+timers_file = "/var/lib/pyra-claw/timers.json"
+
+[devices.phone1]
+label = "Pixel on hub port 2"
+charge = { backend = "uhubctl", location = "1-1", port = 2 }
+
+[devices.phone2]
+label = "Rooted Nexus 6 over adb"
+charge = { backend = "adb", serial = "ZX1G22ABCD", profile = "nexus6" }
+power_off = { backend = "adb", serial = "ZX1G22ABCD" }
+
+[devices.phone3]
+charge = { backend = "mock" }
+```
+`power_on` and `power_off` fall back to the `charge` backend when they are not set. `GET /api/devices` lists what the hub loaded.
+
+### 11.3 Charge backends
+| Backend | How it works | Hardware needed | Status |
+|---|---|---|---|
+| `uhubctl` | Runs `uhubctl -l <location> -p <port> -a on\|off`, which switches VBUS on a hub port. No VBUS means no charging. | A USB hub with real **per-port power switching** (PPPS), e.g. UUGear MEGA4, plus uhubctl ≥ 2.6.0 (Pi 5 support). Needs root or a udev rule. | implemented |
+| `adb` | `adb -s <serial> shell su -c '<profile>'` writes the kernel charging control (sysfs/debugfs). | **Rooted** phone, USB debugging authorised, known control node for that kernel | implemented (profiles `nexus5`, `nexus6`, `generic`) |
+| `esp32_relay` | Hub publishes `{"action":"usb_power","channel":N,"on":bool}` over MQTT to an ESP32 that drives a relay or high-side MOSFET on the USB 5 V line. | ESP32 plus relay or logic-level P-MOSFET high-side switch per channel | **stub**: the firmware does not implement `usb_power` yet |
+| `mock` | Records calls only | none | implemented (tests/demo) |
+
+Evidence:
+- **Pi 5 onboard ports are ganged [Certain].** All four USB ports share one power switch, so uhubctl can only turn them all on or off together. That would also cut power to anything else plugged in. Use an external PPPS hub. Sources: [uhubctl README](https://github.com/mvp/uhubctl#raspberry-pi-b2b3b4b5) and [uhubctl issue #547](https://github.com/mvp/uhubctl/issues/547).
+- **Cutting VBUS stops charging [Certain].** USB charging current comes from VBUS. Many hubs advertise switching but don't actually cut VBUS; check yours against the uhubctl compatible list [Certain, per README].
+- **adb profiles [Likely].**
+  - The node paths come from Chromium's device-control code ([catapult `devil/android/battery_utils.py`](https://chromium.googlesource.com/catapult/+/HEAD/devil/devil/android/battery_utils.py)):
+    - Nexus 5: bq24192 `INPUT_SRC_CONT` debugfs
+    - Nexus 6: `/sys/class/power_supply/battery/charging_enabled`
+  - Paths differ by kernel. On some devices `battery_charging_enabled` only *pauses* charging at a level ([android.stackexchange #200032](https://android.stackexchange.com/questions/200032)).
+  - `generic` writes `/sys/class/power_supply/battery/battery_charging_enabled`, which some kernels treat as "pause at level" rather than a hard input cut [Guessing per device].
+- **`dumpsys battery set …` does not stop charging [Certain].** It only fakes the reported state, so we don't use it.
+- **adb `device.power_off` = `adb shell reboot -p` [Likely].** It asks for a normal shutdown on a debug-authorised phone. Some builds need root for it.
+- **`device.power_on` via USB power restore [Guessing].**
+  - uhubctl power_on cycles the port (off, then on), hoping the phone boots on charger insertion.
+  - Many phones only show an off-mode charging animation instead of booting. Some bootloaders can be set to boot on charge, e.g. `fastboot oem off-mode-charge 0` on some Pixel/Nexus devices [Guessing].
+  - adb cannot power on a phone that is off.
+
+### 11.4 Phone app: Timer tab and background service
+- The **Timer** tab lists timers with their schedule and next run. From it you can toggle, run now, edit or delete a timer, or create one. The editor has a repeat picker, a device picker and a sequence builder with per-step delays.
+- **Start service** starts a foreground service with a "Hub link" notification. It keeps a WebSocket to the hub, streams timer events into the tab's status log, and accepts commands while the screen is off.
+  - It uses the FGS type `connectedDevice` (Android 14+ requires `FOREGROUND_SERVICE_CONNECTED_DEVICE` plus a prerequisite such as `CHANGE_NETWORK_STATE`). It falls back to `dataSync`, which Android 15 limits to 6 h per 24 h [Certain, Android docs: [FGS types](https://developer.android.com/develop/background-work/services/fgs/service-types)].
+  - A partial wake lock is held only while a command is in flight (max 60 s).
+  - Android 13+ asks for notification permission. For reliable screen-off use, exempt the app from battery optimization ("Battery settings" button) [Likely].
+- **droidcommand-AI:** the app registers as an `EXTERNAL_NODE` (STUB; the contract is not final). droidcommand-AI sends broadcast `ai.droidcommand.action.REMOTE_COMMAND` with extra `envelope` (remote.command JSON).
+  - The receiver is protected by the signature permission `com.victorious.pyraclaw.permission.EXTERNAL_NODE`, so the sender must be signed with the same key.
+  - Commands are only accepted while the service is running; Android 12+ blocks starting it from the background.
+  - Gated commands still need an `approval_token`.

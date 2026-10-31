@@ -100,6 +100,7 @@ fun HelpScreen() {
         Text("1. Connect phone to the Pi 5 via USB-C (enable USB tethering) or the same Wi-Fi.")
         Text("2. Enter the hub URL (USB tether default http://192.168.42.1:8787/) and auth token.")
         Text("3. Wake PC sends Wake-on-LAN; Power Pulse presses PWR_SW for 300 ms after hold-to-confirm.")
+        Text("4. Without the Pi, the ESP32 answers on http://pyra-<node_id>.local: GET /health, POST /wake (Bearer hub_token), POST /pulse (signed).")
         Text("See docs/MANUAL.md in the repo for wiring and troubleshooting.")
     }
 }

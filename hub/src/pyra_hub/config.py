@@ -25,6 +25,12 @@ class PcConfig:
 
 
 @dataclass
+class NodeConfig:
+    # Shared secret for HMAC-signed node commands. Same value as the ESP32 NVS key `hub_token`.
+    hub_token: str = ""
+
+
+@dataclass
 class HubConfig:
     host: str = "0.0.0.0"
     port: int = 8787
@@ -33,6 +39,7 @@ class HubConfig:
     approval_ttl_s: int = 30
     mqtt: MqttConfig = field(default_factory=MqttConfig)
     pc: PcConfig = field(default_factory=PcConfig)
+    node: NodeConfig = field(default_factory=NodeConfig)
 
 
 def load_config(path: str | os.PathLike[str] | None = None) -> HubConfig:
@@ -46,4 +53,5 @@ def load_config(path: str | os.PathLike[str] | None = None) -> HubConfig:
         **{k: v for k, v in hub.items() if k in HubConfig.__dataclass_fields__},
         mqtt=MqttConfig(**data.get("mqtt", {})),
         pc=PcConfig(**data.get("pc", {})),
+        node=NodeConfig(**data.get("node", {})),
     )

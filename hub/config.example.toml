@@ -10,11 +10,18 @@ approval_ttl_s = 30
 [mqtt]
 host = "127.0.0.1"
 port = 1883
-username = ""
-password = ""
+# install.sh generates these and writes them to /etc/mosquitto/pyra-claw.passwd
+username = "pyra-hub"
+password = "CHANGE_ME_MQTT"
 topic_prefix = "pyra/node"
 
 [pc]
 mac = "AA:BB:CC:DD:EE:FF"
 broadcast = "255.255.255.255"
 wake_node = "esp32-wake-01"
+
+[node]
+# Shared HMAC secret for signed node commands (protocol v0.2). Provision the SAME value
+# into the ESP32 as NVS key `hub_token` (tools/provision.py ... hub_token=<value>).
+# install.sh generates it and stores a copy in /etc/pyra-claw/node-credentials.
+hub_token = "CHANGE_ME_NODE"

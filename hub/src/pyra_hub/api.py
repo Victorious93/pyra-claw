@@ -14,9 +14,11 @@ from .envelope import parse_envelope, unwrap
 from .mqtt_bridge import MqttBridge
 from .queue import ApprovalError, ApprovalGate, AuditLog, CommandQueue
 from .registry import Registry
+from .signing import signed_pulse
 from .wol import send_wol
 
 POWER_PULSE_MAX_MS = 300
+PROTOCOL_VERSION = "0.2"
 
 
 def create_app(cfg: HubConfig, bridge: MqttBridge | None = None) -> FastAPI:
@@ -32,6 +34,7 @@ def create_app(cfg: HubConfig, bridge: MqttBridge | None = None) -> FastAPI:
     def status() -> dict:
         return {
             "version": __version__,
+            "protocol": PROTOCOL_VERSION,
             "uptime_s": round(time.time() - started, 1),
             "mqtt": bool(bridge and bridge.client),
             "nodes": registry.list(),
@@ -50,11 +53,11 @@ def create_app(cfg: HubConfig, bridge: MqttBridge | None = None) -> FastAPI:
             return {"wol_bytes": sent, "relayed": relayed}
         if cmd.command == "pc.power_pulse":
             ms = min(int(cmd.args.get("ms", POWER_PULSE_MAX_MS)), POWER_PULSE_MAX_MS)
-            relayed = bool(bridge) and bridge.publish_cmd(
-                cmd.target or cfg.pc.wake_node,
-                {"action": "power_pulse", "ms": ms, "approval": cmd.approval_token, "id": cmd.id},
-            )
-            return {"ms": ms, "relayed": relayed}
+            if not cfg.node.hub_token or cfg.node.hub_token.startswith("CHANGE_ME"):
+                raise HTTPException(503, "node.hub_token not configured; cannot sign power_pulse")
+            payload = signed_pulse(cfg.node.hub_token, cmd.id, ms)
+            relayed = bool(bridge) and bridge.publish_cmd(cmd.target or cfg.pc.wake_node, payload)
+            return {"ms": ms, "relayed": relayed, "signed": True}
         raise HTTPException(400, "unsupported")
 
     @app.get("/health")

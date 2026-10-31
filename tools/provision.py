@@ -7,6 +7,7 @@ Examples:
   python tools/provision.py /dev/ttyUSB0 hello
   python tools/provision.py /dev/ttyUSB0 get
   python tools/provision.py /dev/ttyUSB0 provision ssid=MyWifi pass=secret broker_port=1883
+  python tools/provision.py /dev/ttyUSB0 provision mqtt_user=pyra-node mqtt_pass=... hub_token=...
   python tools/provision.py /dev/ttyUSB0 reboot
   python tools/provision.py /dev/ttyUSB0 factory_reset
 """

@@ -3,10 +3,14 @@
 // USB serial provisioning contract v1: see docs/PROVISIONING.md.
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <ESPmDNS.h>
 #include <Preferences.h>
 #include <PubSubClient.h>
 #include <WiFi.h>
 #include <WiFiUdp.h>
+#include <WebServer.h>
+#include <mbedtls/md.h>
+#include <time.h>
 
 #if __has_include("config.h")
 #include "config.h"
@@ -15,7 +19,7 @@
 #endif
 
 #ifndef FW_VERSION
-#define FW_VERSION "0.2.0"
+#define FW_VERSION "0.3.0"
 #endif
 #ifndef HUB_TOKEN
 #define HUB_TOKEN ""
@@ -28,6 +32,13 @@
 static const uint32_t PULSE_MAX_MS = 300;
 static const uint32_t PULSE_COOLDOWN_MS = 5000;
 static const uint32_t PROV_WINDOW_MS = 10000;
+static const char *PROTOCOL_VERSION = "0.2";
+static const long SIG_MAX_SKEW_S = 30;          // |node clock - ts| must be <= 30 s
+static const time_t TIME_VALID_AFTER = 1700000000;  // clock before this = no NTP sync yet
+static const uint32_t HTTP_WAKE_MIN_INTERVAL_MS = 10000;
+#ifndef HTTP_PORT
+#define HTTP_PORT 80
+#endif
 static const char *NVS_NS = "fleet";
 
 // Runtime config: config.h defaults, overridden by NVS namespace "fleet".
@@ -252,12 +263,17 @@ WiFiUDP udp;
 String tCmd, tStatus, tHeartbeat;
 uint32_t lastBeat = 0, lastPulse = 0, lastMqttTry = 0, lastWifiTry = 0;
 
+bool timeSynced();
+
 void publishStatus(const char *state, const char *detail = "") {
   JsonDocument d;
   d["state"] = state;
   d["detail"] = detail;
   d["ip"] = WiFi.localIP().toString();
-  char buf[256];
+  d["fw"] = FW_VERSION;
+  d["protocol"] = PROTOCOL_VERSION;
+  d["time_synced"] = timeSynced();
+  char buf[320];
   size_t n = serializeJson(d, buf);
   mqtt.publish(tStatus.c_str(), (const uint8_t *)buf, n, true);
 }
@@ -283,22 +299,82 @@ void doWake() {
   publishStatus("online", ok ? "wake_pc:sent" : "wake_pc:failed");
 }
 
-void doPulse(uint32_t ms, const char *approval) {
-  // Approval token is validated by the hub; node refuses if it is missing.
-  if (approval == nullptr || strlen(approval) < 8) {
-    publishStatus("online", "power_pulse:rejected_no_approval");
-    return;
+// ---------- signed command verification (protocol v0.2) ----------
+// sig = hex(HMAC-SHA256(hub_token, "<id>|<action>|<ms>|<ts>")), ts = Unix seconds.
+static const int REPLAY_RING = 16;
+String recentIds[REPLAY_RING];
+int recentIdx = 0;
+
+bool timeSynced() { return time(nullptr) > TIME_VALID_AFTER; }
+
+bool idSeen(const char *id) {
+  for (const String &r : recentIds)
+    if (r.length() && r == id) return true;
+  return false;
+}
+
+void rememberId(const char *id) {
+  recentIds[recentIdx] = id;
+  recentIdx = (recentIdx + 1) % REPLAY_RING;
+}
+
+bool hmacHex(const String &key, const String &msg, char out[65]) {
+  uint8_t mac[32];
+  const mbedtls_md_info_t *info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+  if (!info || mbedtls_md_hmac(info, (const uint8_t *)key.c_str(), key.length(),
+                               (const uint8_t *)msg.c_str(), msg.length(), mac) != 0)
+    return false;
+  for (int i = 0; i < 32; i++) snprintf(out + i * 2, 3, "%02x", mac[i]);
+  return true;
+}
+
+// Constant-time compare (case-insensitive for hex).
+bool ctEqual(const char *a, const char *b) {
+  size_t la = strlen(a), lb = strlen(b);
+  uint8_t diff = la != lb;
+  for (size_t i = 0; i < la && i < lb; i++) diff |= tolower((unsigned char)a[i]) ^ tolower((unsigned char)b[i]);
+  return diff == 0;
+}
+
+// Returns nullptr if the command may run, else a reason string (also used in status).
+const char *verifySigned(const char *id, const char *action, long long ms, long long ts,
+                         const char *sig) {
+  if (cfg.hub_token.length() == 0) return "rejected_no_hub_token";
+  if (!id || !*id || strchr(id, '|') || strlen(id) > 64) return "rejected_bad_id";
+  if (!sig || strlen(sig) != 64) return "rejected_bad_sig";
+  if (!timeSynced()) return "rejected_no_time_sync";  // fail closed
+  String msg = String(id) + "|" + action + "|" + String((long)ms) + "|" + String((long)ts);
+  char expected[65];
+  if (!hmacHex(cfg.hub_token, msg, expected)) return "rejected_hmac_error";
+  if (!ctEqual(expected, sig)) return "rejected_bad_sig";
+  long long skew = (long long)time(nullptr) - ts;
+  if (skew > SIG_MAX_SKEW_S || skew < -SIG_MAX_SKEW_S) return "rejected_stale_ts";
+  if (idSeen(id)) return "rejected_replay";
+  rememberId(id);
+  return nullptr;
+}
+
+// Returns "done" or a rejection reason. Publishes the result in status.
+const char *doPulse(JsonVariantConst d) {
+  static char detail[64];
+  const char *id = d["id"] | (const char *)nullptr;
+  const char *sig = d["sig"] | (const char *)nullptr;
+  long long ms = d["ms"] | (long long)PULSE_DEFAULT_MS;
+  long long ts = d["ts"] | (long long)0;
+  const char *why = verifySigned(id, "power_pulse", ms, ts, sig);
+  if (!why && lastPulse != 0 && millis() - lastPulse < PULSE_COOLDOWN_MS) why = "rejected_cooldown";
+  if (why) {
+    snprintf(detail, sizeof(detail), "power_pulse:%s", why);
+    publishStatus("online", detail);
+    return why;
   }
-  if (millis() - lastPulse < PULSE_COOLDOWN_MS && lastPulse != 0) {
-    publishStatus("online", "power_pulse:rejected_cooldown");
-    return;
-  }
-  if (ms == 0 || ms > PULSE_MAX_MS) ms = PULSE_MAX_MS;
+  uint32_t pms = (ms <= 0 || ms > PULSE_MAX_MS) ? PULSE_MAX_MS : (uint32_t)ms;  // hard cap
   digitalWrite(PULSE_PIN, HIGH);
-  delay(ms);
+  delay(pms);
   digitalWrite(PULSE_PIN, LOW);
   lastPulse = millis();
   publishStatus("online", "power_pulse:done");
+  return "done";
 }
 
 void onMessage(char *topic, byte *payload, unsigned int len) {
@@ -308,20 +384,121 @@ void onMessage(char *topic, byte *payload, unsigned int len) {
   if (strcmp(action, "wake_pc") == 0) {
     doWake();
   } else if (strcmp(action, "power_pulse") == 0) {
-    doPulse(d["ms"] | PULSE_DEFAULT_MS, d["approval"] | (const char *)nullptr);
+    doPulse(d.as<JsonVariantConst>());
   }
 }
 
-// Non-blocking so the serial provisioning port stays responsive.
+// ---------- standalone HTTP API (works without hub/broker) ----------
+WebServer http(HTTP_PORT);
+bool httpStarted = false, mdnsStarted = false;
+uint32_t lastHttpWake = 0;
+
+void sendJson(int code, JsonDocument &d) {
+  String out;
+  serializeJson(d, out);
+  http.send(code, "application/json", out);
+}
+
+void sendErr(int code, const char *err) {
+  JsonDocument d;
+  d["ok"] = false;
+  d["err"] = err;
+  sendJson(code, d);
+}
+
+bool bearerOk() {
+  if (cfg.hub_token.length() == 0) return false;
+  String h = http.header("Authorization");
+  if (!h.startsWith("Bearer ")) return false;
+  return ctEqual(h.substring(7).c_str(), cfg.hub_token.c_str());
+}
+
+void httpHealth() {
+  JsonDocument d;
+  d["ok"] = true;
+  d["node_id"] = cfg.node_id;
+  d["fw"] = FW_VERSION;
+  d["protocol"] = PROTOCOL_VERSION;
+  d["time_synced"] = timeSynced();
+  d["mqtt"] = mqtt.connected();
+  d["ip"] = WiFi.localIP().toString();
+  sendJson(200, d);
+}
+
+void httpWake() {
+  if (cfg.hub_token.length() == 0) return sendErr(503, "no_hub_token");
+  if (!bearerOk()) return sendErr(401, "unauthorized");
+  if (lastHttpWake != 0 && millis() - lastHttpWake < HTTP_WAKE_MIN_INTERVAL_MS)
+    return sendErr(429, "rate_limited");
+  lastHttpWake = millis();
+  doWake();
+  JsonDocument d;
+  d["ok"] = true;
+  d["sent"] = "wake_pc";
+  sendJson(200, d);
+}
+
+void httpPulse() {
+  JsonDocument d;
+  if (deserializeJson(d, http.arg("plain")) || !d.is<JsonObject>()) return sendErr(400, "bad_json");
+  const char *action = d["action"] | "power_pulse";
+  if (strcmp(action, "power_pulse") != 0) return sendErr(400, "bad_action");
+  const char *r = doPulse(d.as<JsonVariantConst>());
+  if (!strcmp(r, "done")) {
+    JsonDocument ok;
+    ok["ok"] = true;
+    ok["result"] = "power_pulse:done";
+    return sendJson(200, ok);
+  }
+  int code = 403;
+  if (!strcmp(r, "rejected_cooldown")) code = 429;
+  else if (!strcmp(r, "rejected_replay")) code = 409;
+  else if (!strcmp(r, "rejected_no_time_sync") || !strcmp(r, "rejected_no_hub_token")) code = 503;
+  sendErr(code, r);
+}
+
+void startNetServices() {
+  if (!httpStarted) {
+    const char *hdrs[] = {"Authorization"};
+    http.collectHeaders(hdrs, 1);
+    http.on("/health", HTTP_GET, httpHealth);
+    http.on("/wake", HTTP_POST, httpWake);
+    http.on("/pulse", HTTP_POST, httpPulse);
+    http.onNotFound([] { sendErr(404, "not_found"); });
+    http.begin();
+    httpStarted = true;
+  }
+  if (!mdnsStarted) {
+    String host = String("pyra-") + cfg.node_id;
+    if (MDNS.begin(host.c_str())) {
+      MDNS.addService("http", "tcp", HTTP_PORT);
+      mdnsStarted = true;
+    }
+  }
+}
+
+// Non-blocking-ish: a short TCP probe (500 ms) gates the MQTT connect, with backoff up to
+// 30 s, so serial provisioning and the HTTP API stay responsive when the broker is down.
+uint32_t mqttBackoff = 2000;
+
 void ensureMqtt() {
-  if (mqtt.connected() || millis() - lastMqttTry < 2000) return;
+  if (mqtt.connected() || millis() - lastMqttTry < mqttBackoff) return;
   lastMqttTry = millis();
+  if (cfg.broker.length() == 0 || !net.connect(cfg.broker.c_str(), cfg.broker_port, 500)) {
+    net.stop();
+    mqttBackoff = min<uint32_t>(mqttBackoff * 2, 30000);
+    return;
+  }
   const char *lwt = "{\"state\":\"offline\"}";
   const char *user = cfg.mqtt_user.length() ? cfg.mqtt_user.c_str() : nullptr;
   const char *pass = cfg.mqtt_pass.length() ? cfg.mqtt_pass.c_str() : nullptr;
   if (mqtt.connect(cfg.node_id.c_str(), user, pass, tStatus.c_str(), 1, true, lwt)) {
+    mqttBackoff = 2000;
     mqtt.subscribe(tCmd.c_str(), 1);
-    publishStatus("online", "boot");
+    publishStatus("online", timeSynced() ? "boot" : "boot:no_time_sync");
+  } else {
+    net.stop();
+    mqttBackoff = min<uint32_t>(mqttBackoff * 2, 30000);
   }
 }
 
@@ -342,7 +519,9 @@ void setup() {
   } else {
     Serial.println("no ssid configured; waiting for serial provisioning");
   }
+  configTime(0, 0, "pool.ntp.org", "time.google.com", "time.cloudflare.com");  // UTC
   mqtt.setServer(cfg.broker.c_str(), (uint16_t)cfg.broker_port);
+  mqtt.setSocketTimeout(2);
   mqtt.setCallback(onMessage);
 }
 
@@ -360,6 +539,8 @@ void loop() {
     delay(10);
     return;
   }
+  startNetServices();
+  http.handleClient();
   ensureMqtt();
   mqtt.loop();
   if (mqtt.connected() && millis() - lastBeat > 10000) {

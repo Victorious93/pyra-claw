@@ -30,7 +30,7 @@ Opening the port on most ESP32 dev boards resets the chip, which opens the windo
 | `mqtt_pass` | string, secret | `MQTT_PASS` | |
 | `pc_mac` | string | `PC_MAC` | `AA:BB:CC:DD:EE:FF`, validated, stored upper-case |
 | `pc_broadcast` | string | `255.255.255.255` | IPv4, validated; WOL target |
-| `hub_token` | string, secret | `""` | stored for fleet use; not consumed by firmware yet |
+| `hub_token` | string, secret | `HUB_TOKEN` (`""`) | shared HMAC key for signed `power_pulse` and bearer token for HTTP `/wake` (protocol v0.2). Must equal hub `[node] hub_token`. Empty = pulses and `/wake` refused |
 
 Values in NVS (Preferences namespace `fleet`) override `config.h` defaults.
 Changes are saved immediately but take effect after `reboot`.
@@ -72,6 +72,19 @@ Reply is sent before acting. `factory_reset` clears the `fleet` namespace, then 
 > {"v":1,"cmd":"dance"}
 < {"v":1,"ok":false,"err":"unknown_cmd"}
 ```
+
+## Where the hub token and MQTT credentials come from
+`sudo ./hub/install.sh` generates them once and never overwrites them:
+- `/etc/pyra-claw/node-credentials` (root only): `NODE_MQTT_USER`, `NODE_MQTT_PASS`, `NODE_HUB_TOKEN`, plus the hub's own MQTT login.
+- The hub's copy of the token is `[node] hub_token` in `/etc/pyra-claw/config.toml`.
+
+Provision the node with them:
+```
+sudo bash -c 'source /etc/pyra-claw/node-credentials; python3 tools/provision.py /dev/ttyUSB0 provision \
+  mqtt_user="$NODE_MQTT_USER" mqtt_pass="$NODE_MQTT_PASS" hub_token="$NODE_HUB_TOKEN"'
+python3 tools/provision.py /dev/ttyUSB0 reboot
+```
+To rotate the token, change it in both places (config.toml then provision), and restart `pyra-hub`.
 
 ## Host script
 `tools/provision.py` (needs `pip install pyserial`):

@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from pyra_hub.api import create_app
-from pyra_hub.config import HubConfig
+from pyra_hub.config import HubConfig, NodeConfig
 from pyra_hub.envelope import RemoteCommand
 from pyra_hub.queue import ApprovalError, ApprovalGate, AuditLog, CommandQueue
 
@@ -10,7 +10,11 @@ TOKEN = "test-token"
 
 
 def _client():
-    return TestClient(create_app(HubConfig(auth_token=TOKEN, audit_log="")))
+    return TestClient(
+        create_app(
+            HubConfig(auth_token=TOKEN, audit_log="", node=NodeConfig(hub_token="node-secret"))
+        )
+    )
 
 
 def _h():

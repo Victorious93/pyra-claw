@@ -98,11 +98,12 @@ fun DashboardScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item { Header(ui, nowMs) }
-            if (ui.restError != null && ui.status == null) item { ErrorBanner(ui.restError, onRefresh) }
+            if (ui.mode == ControlMode.DirectEsp32 && ui.direct != null) item { DirectBanner(ui.direct) }
+            else if (ui.restError != null && ui.status == null) item { ErrorBanner(ui.restError, onRefresh) }
             item { WakeHero(ui, nowMs, onWake) }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    QuickAction("Power button", "Needs approval", Icons.Filled.PowerSettingsNew, Neon.Magenta, Modifier.weight(1f), onPowerButton)
+                    QuickAction("Power button", if (ui.mode == ControlMode.Hub) "Needs approval" else "Needs the hub", Icons.Filled.PowerSettingsNew, Neon.Magenta, Modifier.weight(1f), onPowerButton)
                     QuickAction("Devices", "Charge & power", Icons.Filled.Devices, Neon.Cyan, Modifier.weight(1f), onOpenDevices)
                 }
             }
@@ -175,12 +176,16 @@ private fun WakeHero(ui: DashboardUi, nowMs: Long, onWake: () -> Unit) {
     val pulse by rememberInfiniteTransition(label = "hero").animateFloat(
         1f, if (sending) 1.06f else 1.015f, infiniteRepeatable(tween(if (sending) 450 else 1800), RepeatMode.Reverse), label = "s",
     )
-    NeonCard(accent = Neon.Cyan.copy(alpha = 0.5f), glow = true, padding = 20.dp) {
+    val direct = ui.mode == ControlMode.DirectEsp32
+    val ring = if (direct) Neon.Magenta else Neon.Cyan
+    NeonCard(accent = ring.copy(alpha = 0.5f), glow = true, padding = 20.dp) {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Tag(if (direct) "DIRECT · ESP32" else "VIA HUB", ring, Modifier.testTag("modeTag"))
+            Spacer(Modifier.height(10.dp))
             Box(
                 Modifier.size(168.dp).scale(pulse).clip(CircleShape)
-                    .background(Brush.radialGradient(listOf(Neon.Cyan.copy(alpha = 0.28f), Neon.Bg)))
-                    .border(3.dp, Neon.CyanMagenta, CircleShape)
+                    .background(Brush.radialGradient(listOf(ring.copy(alpha = 0.28f), Neon.Bg)))
+                    .border(3.dp, if (direct) Brush.linearGradient(listOf(Neon.Magenta, Neon.Violet)) else Neon.CyanMagenta, CircleShape)
                     .clickable(enabled = !sending, role = Role.Button, onClickLabel = "Wake PC") {
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         onWake()
@@ -188,24 +193,65 @@ private fun WakeHero(ui: DashboardUi, nowMs: Long, onWake: () -> Unit) {
                     .testTag("wakeButton"),
                 contentAlignment = Alignment.Center,
             ) {
-                if (sending) CircularProgressIndicator(Modifier.size(150.dp), color = Neon.Cyan, strokeWidth = 3.dp)
+                if (sending) CircularProgressIndicator(Modifier.size(150.dp), color = ring, strokeWidth = 3.dp)
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Filled.Bolt, null, tint = Neon.Cyan, modifier = Modifier.size(54.dp))
+                    Icon(Icons.Filled.Bolt, null, tint = ring, modifier = Modifier.size(54.dp))
                     Text("WAKE PC", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, color = Neon.Text)
                 }
             }
             Spacer(Modifier.height(14.dp))
             val (text, color) = when (val w = ui.wake) {
-                WakeState.Idle -> "Wake-on-LAN + ESP32 relay. No approval needed." to Neon.TextDim
-                WakeState.Sending -> "Sending magic packet…" to Neon.Cyan
+                WakeState.Idle ->
+                    (if (direct) "Hub unreachable: sends straight to the ESP32. No approval needed."
+                    else "Wake-on-LAN + ESP32 relay. No approval needed.") to Neon.TextDim
+                WakeState.Sending -> (if (direct) "Asking the ESP32…" else "Sending magic packet…") to ring
                 is WakeState.Sent -> (
-                    "Magic packet sent ${Fmt.relative(w.atMs / 1000.0, nowMs)}" +
-                        (if (w.relayed) " · ESP32 relayed it" else " · ESP32 relay unavailable") +
-                        "\nThe hub can't confirm the PC booted. Allow about 30 s."
+                    if (w.via == WakeVia.DirectEsp32) {
+                        "ESP32 sent the magic packet directly ${Fmt.relative(w.atMs / 1000.0, nowMs)} (hub unreachable)" +
+                            "\nNothing can confirm the PC booted. Allow about 30 s."
+                    } else {
+                        "Magic packet sent ${Fmt.relative(w.atMs / 1000.0, nowMs)}" +
+                            (if (w.relayed) " · ESP32 relayed it" else " · ESP32 relay unavailable") +
+                            "\nThe hub can't confirm the PC booted. Allow about 30 s."
+                    }
                     ) to Neon.Green
                 is WakeState.Failed -> "${w.error.title}\n${w.error.hint}" to Neon.Red
             }
             Text(text, style = MaterialTheme.typography.bodyMedium, color = color, textAlign = TextAlign.Center, modifier = Modifier.testTag("wakeResult"))
+        }
+    }
+}
+
+@Composable
+private fun DirectBanner(d: DirectInfo) {
+    NeonCard(accent = Neon.Magenta, padding = 14.dp, modifier = Modifier.testTag("directBanner")) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            StatusDot(
+                when { d.health?.ok == true -> Neon.Green; d.healthError != null -> Neon.Red; else -> Neon.Amber },
+                pulsing = d.health?.ok == true,
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text("DIRECT ESP32 MODE", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Black, color = Neon.Magenta)
+                Text(
+                    "Hub unreachable. Wake PC goes straight to ${d.url.removePrefix("http://").trimEnd('/')}. Power button, devices and timers need the hub.",
+                    style = MaterialTheme.typography.bodySmall, color = Neon.TextDim,
+                )
+            }
+        }
+        val h = d.health
+        val tags = when {
+            h != null -> listOfNotNull(
+                (h.node_id ?: "ESP32") to Neon.Cyan,
+                h.fw?.let { "fw $it" to Neon.Violet },
+                (if (h.time_synced == true) "time synced" else "no NTP") to (if (h.time_synced == true) Neon.Green else Neon.Amber),
+                if (h.can_wake == false) "no wake token on node" to Neon.Red else null,
+            )
+            d.healthError != null -> listOf(d.healthError.title to Neon.Red)
+            else -> listOf("checking ESP32…" to Neon.Amber)
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            tags.forEach { (t, c) -> Tag(t, c) }
         }
     }
 }

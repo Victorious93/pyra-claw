@@ -87,7 +87,7 @@ Relay alternative: one 5 V relay module per channel (COM = +5 V, NO = VBUS), dri
    - **Firmware size:** 0.4.0 uses about **90.8 %** of the default 1.25 MB app partition (`pio run`, Nov 2026). If a future build no longer fits, add `board_build.partitions = min_spiffs.csv` to `platformio.ini` (1.9 MB app slots, keeps OTA, shrinks SPIFFS, which this firmware doesn't use). Changing the partition table needs one full USB flash (`pio run -t erase -t upload`) and wipes NVS, so re-provision afterwards. [Likely]
 4. **Phone:** Install the APK from the CI artifact (v0.4.0+ is signed with a fixed debug key; if an older Pyra Claw is installed, uninstall it once first). Turn on USB tethering (Pi usually reaches it via `usb0`) or join the same Wi-Fi. On first launch the app opens **Pair your hub**: press **Scan** or type the address, paste `auth_token` from `/etc/pyra-claw/config.toml`, press **Test connection**, then **Save**.
 
-## 6. Usage: the Android app (v0.4) ⚠️ NOT YET TESTED ON A REAL PHONE + HUB
+## 6. Usage: the Android app (v0.5) ⚠️ NOT YET TESTED ON A REAL PHONE + HUB
 Screenshots below are real renders of the app's Compose code with sample data (Robolectric), not photos of a phone talking to a real hub.
 
 | | | |
@@ -97,13 +97,26 @@ Screenshots below are real renders of the app's Compose code with sample data (R
 Six tabs at the bottom. The same manual is inside the app under **Help** (searchable).
 
 - **Pairing (first launch, or Settings > Change hub):** Scan (mDNS `_pyra-hub._tcp` / `_http._tcp` named pyra*, plus probes of 192.168.42.1, pyra.local, pyra-hub.local, raspberrypi.local), or type the URL (`http://` and `:8787` are added if missing). Test connection checks `GET /health` (address) then `GET /api/status` (token) and says which one failed. The token is stored encrypted with an Android Keystore AES-GCM key; a v0.3 plaintext token is migrated and deleted.
-- **Dashboard:** live hub link over `/ws` with a status pill (Live / Connecting / Offline with retry countdown / Token rejected) and automatic reconnect (1 s → 30 s backoff). Big **WAKE PC** button with haptics and a result line (bytes sent, ESP32 relay yes/no; the hub cannot confirm the PC booted). Quick actions: Power button, Devices, Timers, Refresh. Running timers with progress, one-tap Manual timers, and ESP32 node cards (online/offline, last seen, IP, firmware, RSSI, NTP sync).
+- **Dashboard:** live hub link over `/ws` with a status pill (Live / Connecting / Offline with retry countdown / Token rejected) and automatic reconnect (1 s → 30 s backoff). Big **WAKE PC** button with haptics and a result line (bytes sent, ESP32 relay yes/no; the hub cannot confirm the PC booted). A **VIA HUB** / **DIRECT · ESP32** tag on the Wake card shows where the next wake goes (6.1). Quick actions: Power button, Devices, Timers, Refresh. Running timers with progress, one-tap Manual timers, and ESP32 node cards (online/offline, last seen, IP, firmware, RSSI, NTP sync).
 - **Approvals (Power button, device Power off):** a bottom sheet. Hold the magenta bar 1.5 s → the app calls `POST /api/approve/<command>` → a 30 s countdown ring → **Send** calls `POST /api/command` with the single-use token. If it expires, nothing is sent.
 - **Devices:** the PC (Wake, Power) and every `[devices.<id>]` on the hub with its backends. Charge on/off and Power on run directly; Power off goes through the approval sheet.
 - **Timers:** cards with schedule, next run (absolute and relative), step list, live progress, last result, armed badge, enable switch, run/edit/delete. The full-screen editor has repeat chips (Once/Daily/Weekly/Manual), a dark time picker and date picker, day chips with Weekdays/Weekends/Every day, and a step builder with drag-to-reorder (plus up/down buttons), action and device dropdowns and a wait stepper. Saving a timer with gated steps asks you to hold-to-confirm, then requests `timer.arm` (see 11.1).
 - **Activity:** the hub audit log (`GET /api/audit`) grouped by day, with filters (All, Commands, Approvals, Problems, Timers) and search; a second view shows this phone's background-link log.
-- **Settings:** hub URL, token status, hub version, Test, Change hub, Forget; Background link switch with battery-optimization and notification shortcuts; theme info; droidcommand-AI node info; About (version, package, protocol).
+- **Settings:** hub URL, token status, hub version, Test, Change hub, Forget; **Direct ESP32** (address + wake_token, Save & test, Remove; see 6.1); Background link switch with battery-optimization and notification shortcuts; theme info; droidcommand-AI node info; About (version, package, protocol).
 - Every screen has loading, empty and error states and pull-to-refresh. Hub errors are mapped to plain messages (401 token, 403 approval, 409 busy, 502 device backend, 503 not configured, unreachable, timeout).
+
+### 6.1 Direct ESP32 mode (app 0.5, no Pi) ⚠️ UNTESTED ON HARDWARE
+| | |
+|---|---|
+| ![Direct mode dashboard](img/app/11-dashboard-direct-esp32.png) | ![Direct ESP32 settings](img/app/12-settings-direct-esp32.png) |
+
+A fallback for **Wake PC only**, for when the Pi hub is off or unreachable.
+- **Set up:** Settings > Direct ESP32. Address `pyra-<node_id>.local` or the node's IP (port 80 is assumed), and the node's **`wake_token`** (`NODE_WAKE_TOKEN` in `/etc/pyra-claw/node-credentials`, provisioned with `provision.py ... wake_token=...`, firmware 0.4+, ≥ 16 chars). **Save & test** stores the token encrypted with the Android Keystore key and calls `GET /health` on the node.
+- **When it kicks in:** Wake PC always tries the hub first. If the hub is **unreachable or times out**, the app sends `POST /wake` with `Authorization: Bearer <wake_token>` to the ESP32. Once the hub is known to be down (failed refresh), the dashboard shows a magenta **DIRECT ESP32 MODE** banner with the node's health (online, firmware, NTP) and Wake goes straight to the ESP32 without waiting for another hub timeout. Hub refusals (401, 403, 5xx) are shown as errors and **never** fall back.
+- **Errors:** `401` wrong wake_token, `429` one wake per 10 s, `503` node has no token, unreachable = phone not on the node's network. Nothing can confirm the PC booted.
+- **Power button stays hub-only, on purpose.** The node's `POST /pulse` only takes commands HMAC-signed with `hub_token`. Signing on the phone would mean storing that key on the phone, and it would skip the hub's 30 s approval and the audit log. If the phone or its backup leaked, someone could hold the PC's power button. A wake is harmless; a forced power-off isn't. So the app never asks for `hub_token`, and the wake_token it stores can't sign anything. [Certain, from code]
+- Plain HTTP on the LAN: the wake_token is visible to anyone sniffing that network. Use a trusted network. [Certain]
+- Devices, timers and the Activity log need the hub; they show the usual "Can't reach the hub" error in direct mode.
 
 ## 7. Commands
 | Command | Approval | What it does |

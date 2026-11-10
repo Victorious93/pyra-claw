@@ -12,8 +12,8 @@ android {
         applicationId = "com.victorious.pyraclaw"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.4.0"
+        versionCode = 5
+        versionName = "0.5.0"
         buildConfigField("String", "DEFAULT_HUB_URL", "\"http://192.168.42.1:8787/\"")
         buildConfigField("String", "PROTOCOL_VERSION", "\"0.3\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

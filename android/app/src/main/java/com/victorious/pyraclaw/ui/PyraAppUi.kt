@@ -151,7 +151,7 @@ private fun MainScaffold(c: AppContainer, snackbar: SnackbarHostState, onChangeH
     ) { pad ->
         NavHost(nav, startDestination = Tab.Dashboard.route, modifier = Modifier.padding(pad).fillMaxSize()) {
             composable(Tab.Dashboard.route) {
-                val vm: DashboardViewModel = viewModel { DashboardViewModel(c.repository, c.live.state, c.live::reconnectNow) }
+                val vm: DashboardViewModel = viewModel { DashboardViewModel(c.repository, c.live.state, c.live::reconnectNow, settings = c.settings, direct = c.direct) }
                 val ui by vm.ui.collectAsStateWithLifecycle()
                 Messages(vm.messages, snackbar)
                 DashboardScreen(
@@ -164,7 +164,7 @@ private fun MainScaffold(c: AppContainer, snackbar: SnackbarHostState, onChangeH
             }
             composable(Tab.Devices.route) {
                 val vm: DevicesViewModel = viewModel { DevicesViewModel(c.repository) }
-                val dash: DashboardViewModel = viewModel { DashboardViewModel(c.repository, c.live.state, c.live::reconnectNow) }
+                val dash: DashboardViewModel = viewModel { DashboardViewModel(c.repository, c.live.state, c.live::reconnectNow, settings = c.settings, direct = c.direct) }
                 val ui by vm.ui.collectAsStateWithLifecycle()
                 Messages(vm.messages, snackbar)
                 Messages(dash.messages, snackbar)
@@ -206,7 +206,7 @@ private fun MainScaffold(c: AppContainer, snackbar: SnackbarHostState, onChangeH
                 ActivityScreen(ui, svc.log, onRefresh = vm::refresh, onFilter = vm::setFilter, onQuery = vm::setQuery)
             }
             composable(Tab.Settings.route) {
-                val vm: SettingsViewModel = viewModel { SettingsViewModel(c.settings, c.repository, c.live.state) }
+                val vm: SettingsViewModel = viewModel { SettingsViewModel(c.settings, c.repository, c.live.state, direct = c.direct) }
                 val ui by vm.ui.collectAsStateWithLifecycle()
                 var facts by remember { mutableStateOf(readFacts(ctx)) }
                 var tick by remember { mutableIntStateOf(0) }
@@ -230,6 +230,9 @@ private fun MainScaffold(c: AppContainer, snackbar: SnackbarHostState, onChangeH
                     },
                     onBatteryExemption = { openBatteryExemption(ctx) },
                     onNotifications = ::askNotifications,
+                    onSaveDirect = vm::saveDirect,
+                    onTestDirect = vm::testDirect,
+                    onClearDirect = vm::clearDirect,
                 )
             }
             composable(Tab.Help.route) { HelpScreen() }

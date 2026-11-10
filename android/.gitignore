@@ -3,3 +3,7 @@ build/
 local.properties
 *.iml
 .idea/
+*.jks
+*.keystore
+*.p12
+!keystore/pyraclaw-debug.jks

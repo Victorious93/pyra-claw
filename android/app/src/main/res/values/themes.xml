@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Window theme behind Compose: dark navy everywhere, never white. -->
+    <style name="Theme.PyraClaw" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/pyra_bg</item>
+        <item name="android:colorBackground">@color/pyra_bg</item>
+        <item name="android:colorAccent">@color/pyra_cyan</item>
+        <item name="android:statusBarColor">@color/pyra_bg</item>
+        <item name="android:navigationBarColor">@color/pyra_bg</item>
+    </style>
+
+    <!-- Launch splash (androidx core-splashscreen, works on API 26+). -->
+    <style name="Theme.PyraClaw.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/pyra_bg</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_logo</item>
+        <item name="postSplashScreenTheme">@style/Theme.PyraClaw</item>
+    </style>
+</resources>

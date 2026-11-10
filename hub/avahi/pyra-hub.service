@@ -1,0 +1,17 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<!-- Lets the Pyra Claw Android app find this hub with "Scan" (mDNS / DNS-SD). Port must match [hub] port. -->
+<service-group>
+  <name replace-wildcards="yes">Pyra Claw Hub on %h</name>
+  <service>
+    <type>_pyra-hub._tcp</type>
+    <port>8787</port>
+    <txt-record>path=/</txt-record>
+    <txt-record>protocol=0.3</txt-record>
+  </service>
+  <service>
+    <type>_http._tcp</type>
+    <port>8787</port>
+    <txt-record>path=/health</txt-record>
+  </service>
+</service-group>

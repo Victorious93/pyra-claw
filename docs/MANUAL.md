@@ -57,16 +57,29 @@ flowchart LR
 1. **Pi:** Flash Bookworm 64-bit, then `git clone` this repo and run `sudo ./hub/install.sh`. Save the printed token. The installer (safe to re-run; it never overwrites existing secrets):
    - configures Mosquitto for the network (`/etc/mosquitto/conf.d/pyra-claw.conf`: `listener 1883`, `allow_anonymous false`, password file `/etc/mosquitto/pyra-claw.passwd`) and creates MQTT users `pyra-hub` and `pyra-node`;
    - writes the hub's MQTT login and the node `hub_token` into `config.toml`, and a root-only copy of the node secrets to `/etc/pyra-claw/node-credentials`;
-   - enables **ufw** (default on): allows SSH (`22/tcp`, or `PYRA_SSH_PORT`) first, then `8787/tcp` and `1883/tcp` only from the Pi's directly connected subnets (LAN, USB tether), denies other inbound. Override the subnets with `--allow-from "192.168.1.0/24 192.168.42.0/24"` (or `PYRA_ALLOW_FROM`), or skip the firewall with `--no-ufw` (or `PYRA_NO_UFW=1`). If the USB tether comes up after install, re-run with `--allow-from` including its subnet. Edit `/etc/pyra-claw/config.toml` and set `pc.mac`, then run `sudo systemctl restart pyra-hub`.
+   - advertises the hub over mDNS (avahi `/etc/avahi/services/pyra-hub.service`: `_pyra-hub._tcp` and `_http._tcp` on 8787) so the app's **Scan** can find it;
+   - enables **ufw** (default on): allows SSH (`22/tcp`, or `PYRA_SSH_PORT`) first, then `8787/tcp`, `1883/tcp` and mDNS `5353/udp` only from the Pi's directly connected subnets (LAN, USB tether), denies other inbound. Override the subnets with `--allow-from "192.168.1.0/24 192.168.42.0/24"` (or `PYRA_ALLOW_FROM`), or skip the firewall with `--no-ufw` (or `PYRA_NO_UFW=1`). If the USB tether comes up after install, re-run with `--allow-from` including its subnet. Edit `/etc/pyra-claw/config.toml` and set `pc.mac`, then run `sudo systemctl restart pyra-hub`.
 2. **PC:** Enable Wake-on-LAN in BIOS/UEFI and in the NIC driver (Windows: *Wake on Magic Packet*). Turn off Fast Startup if WOL from S5 fails.
 3. **ESP32:** Flash once with `pio run -t upload` (from `firmware/esp32-wake`). Then provision Wi-Fi, the hub IP, the PC MAC, and the MQTT login and `hub_token` from `/etc/pyra-claw/node-credentials` over USB serial, no rebuild needed: `python tools/provision.py /dev/ttyUSB0 provision ssid=... pass=... broker=192.168.4.1 pc_mac=AA:BB:CC:DD:EE:FF mqtt_user=pyra-node mqtt_pass=... hub_token=...`, then `... reboot`. The node needs internet NTP for signed pulses. The node accepts commands for 10 s after boot, or any time while no Wi-Fi SSID is set. See [PROVISIONING.md](PROVISIONING.md) (UNTESTED ON HARDWARE). Alternatively, copy `include/config.example.h` to `config.h` for compile-time defaults; provisioned values override them.
-4. **Phone:** Install the APK from the CI artifact. Turn on USB tethering (Pi usually reaches it via `usb0`; set the hub URL accordingly) or join the same Wi-Fi. Enter the hub URL and token.
+4. **Phone:** Install the APK from the CI artifact (v0.4.0+ is signed with a fixed debug key; if an older Pyra Claw is installed, uninstall it once first). Turn on USB tethering (Pi usually reaches it via `usb0`) or join the same Wi-Fi. On first launch the app opens **Pair your hub**: press **Scan** or type the address, paste `auth_token` from `/etc/pyra-claw/config.toml`, press **Test connection**, then **Save**.
 
-## 6. Usage
-- **Dashboard:** hub status, **Wake PC**, and **Power Pulse** (opens the hold-to-confirm dialog; hold 2 s).
-- **Nodes:** online/offline state from heartbeats and the LWT.
-- **Logs:** the hub audit log (accepted, rejected and executed commands).
-- **Help:** a short setup guide.
+## 6. Usage: the Android app (v0.4) ⚠️ NOT YET TESTED ON A REAL PHONE + HUB
+Screenshots below are real renders of the app's Compose code with sample data (Robolectric), not photos of a phone talking to a real hub.
+
+| | | |
+|---|---|---|
+| ![Dashboard](img/app/02-dashboard.png) | ![Approval](img/app/04-approval-countdown.png) | ![Timers](img/app/06-timers.png) |
+
+Six tabs at the bottom. The same manual is inside the app under **Help** (searchable).
+
+- **Pairing (first launch, or Settings > Change hub):** Scan (mDNS `_pyra-hub._tcp` / `_http._tcp` named pyra*, plus probes of 192.168.42.1, pyra.local, pyra-hub.local, raspberrypi.local), or type the URL (`http://` and `:8787` are added if missing). Test connection checks `GET /health` (address) then `GET /api/status` (token) and says which one failed. The token is stored encrypted with an Android Keystore AES-GCM key; a v0.3 plaintext token is migrated and deleted.
+- **Dashboard:** live hub link over `/ws` with a status pill (Live / Connecting / Offline with retry countdown / Token rejected) and automatic reconnect (1 s → 30 s backoff). Big **WAKE PC** button with haptics and a result line (bytes sent, ESP32 relay yes/no; the hub cannot confirm the PC booted). Quick actions: Power button, Devices, Timers, Refresh. Running timers with progress, one-tap Manual timers, and ESP32 node cards (online/offline, last seen, IP, firmware, RSSI, NTP sync).
+- **Approvals (Power button, device Power off):** a bottom sheet. Hold the magenta bar 1.5 s → the app calls `POST /api/approve/<command>` → a 30 s countdown ring → **Send** calls `POST /api/command` with the single-use token. If it expires, nothing is sent.
+- **Devices:** the PC (Wake, Power) and every `[devices.<id>]` on the hub with its backends. Charge on/off and Power on run directly; Power off goes through the approval sheet.
+- **Timers:** cards with schedule, next run (absolute and relative), step list, live progress, last result, armed badge, enable switch, run/edit/delete. The full-screen editor has repeat chips (Once/Daily/Weekly/Manual), a dark time picker and date picker, day chips with Weekdays/Weekends/Every day, and a step builder with drag-to-reorder (plus up/down buttons), action and device dropdowns and a wait stepper. Saving a timer with gated steps asks you to hold-to-confirm, then requests `timer.arm` (see 11.1).
+- **Activity:** the hub audit log (`GET /api/audit`) grouped by day, with filters (All, Commands, Approvals, Problems, Timers) and search; a second view shows this phone's background-link log.
+- **Settings:** hub URL, token status, hub version, Test, Change hub, Forget; Background link switch with battery-optimization and notification shortcuts; theme info; droidcommand-AI node info; About (version, package, protocol).
+- Every screen has loading, empty and error states and pull-to-refresh. Hub errors are mapped to plain messages (401 token, 403 approval, 409 busy, 502 device backend, 503 not configured, unreachable, timeout).
 
 ## 7. Commands
 | Command | Approval | What it does |
@@ -159,12 +172,12 @@ Evidence:
   - Many phones only show an off-mode charging animation instead of booting. Some bootloaders can be set to boot on charge, e.g. `fastboot oem off-mode-charge 0` on some Pixel/Nexus devices [Guessing].
   - adb cannot power on a phone that is off.
 
-### 11.4 Phone app: Timer tab and background service
-- The **Timer** tab lists timers with their schedule and next run. From it you can toggle, run now, edit or delete a timer, or create one. The editor has a repeat picker, a device picker and a sequence builder with per-step delays.
-- **Start service** starts a foreground service with a "Hub link" notification. It keeps a WebSocket to the hub, streams timer events into the tab's status log, and accepts commands while the screen is off.
+### 11.4 Phone app: Timers tab and background link
+- The **Timers** tab is described in section 6.
+- **Settings > Background link** starts a foreground service with a "Hub link" notification (with a Stop action). It shares the app's single `/ws` connection, keeps it open with the screen off, logs to Activity > This phone, and accepts droidcommand-AI commands. The switch is remembered and the service is restarted when the app opens.
   - It uses the FGS type `connectedDevice` (Android 14+ requires `FOREGROUND_SERVICE_CONNECTED_DEVICE` plus a prerequisite such as `CHANGE_NETWORK_STATE`). It falls back to `dataSync`, which Android 15 limits to 6 h per 24 h [Certain, Android docs: [FGS types](https://developer.android.com/develop/background-work/services/fgs/service-types)].
   - A partial wake lock is held only while a command is in flight (max 60 s).
-  - Android 13+ asks for notification permission. For reliable screen-off use, exempt the app from battery optimization ("Battery settings" button) [Likely].
+  - Android 13+ asks for notification permission. For reliable screen-off use, exempt the app from battery optimization (Settings > Background link > Battery optimization > Allow) [Likely].
 - **droidcommand-AI:** the app registers as an `EXTERNAL_NODE` (STUB; the contract is not final). droidcommand-AI sends broadcast `ai.droidcommand.action.REMOTE_COMMAND` with extra `envelope` (remote.command JSON).
   - The receiver is protected by the signature permission `com.victorious.pyraclaw.permission.EXTERNAL_NODE`, so the sender must be signed with the same key.
   - Commands are only accepted while the service is running; Android 12+ blocks starting it from the background.

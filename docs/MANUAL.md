@@ -116,7 +116,7 @@ Six tabs at the bottom. The same manual is inside the app under **Help** (search
 Full spec: [PROTOCOL.md](PROTOCOL.md) (v0.2).
 
 ### Standalone mode (no Pi needed) ⚠️ UNTESTED ON HARDWARE
-The ESP32 serves HTTP on port 80 (mDNS `pyra-<node_id>.local`): `GET /health` (no auth), `POST /wake` (`Authorization: Bearer <wake_token>` or `<hub_token>`, max 1 per 10 s), `POST /pulse` (HMAC-signed body only). Since firmware 0.4, provision `wake_token=$NODE_WAKE_TOKEN` and give the phone that one: it can wake the PC but can't sign pulses. The Android app does not use these yet. See PROTOCOL.md.
+The ESP32 serves HTTP on port 80 (mDNS `pyra-<node_id>.local`): `GET /health` (no auth), `POST /wake` (`Authorization: Bearer <wake_token>` or `<hub_token>`, max 1 per 10 s), `POST /pulse` (HMAC-signed body only). Since firmware 0.4, provision `wake_token=$NODE_WAKE_TOKEN` and give the phone that one: it can wake the PC but can't sign pulses. The Android app (0.5+) uses `/wake` as its Direct ESP32 fallback, with this wake_token. See PROTOCOL.md.
 
 ## 8. Safety
 - `pc.power_pulse` needs a single-use approval token (30 s TTL) from the hub **and** the hold-to-confirm gesture on the phone. The hub then HMAC-signs the command; the node checks the signature, a ±30 s timestamp window and replayed ids, and refuses pulses if it has no NTP time (fail closed).

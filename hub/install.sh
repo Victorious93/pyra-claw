@@ -5,8 +5,10 @@
 # Options (flag or env var):
 #   --no-ufw            / PYRA_NO_UFW=1        skip the firewall step
 #   --allow-from "CIDR" / PYRA_ALLOW_FROM=...  space-separated subnets allowed to reach
-#                                              8787/tcp and 1883/tcp (default: auto-detect
-#                                              the Pi's directly connected IPv4 subnets)
+#                                              8787/tcp, 1883/tcp and NTP 123/udp (default:
+#                                              auto-detect the Pi's directly connected IPv4
+#                                              subnets, incl. a USB gadget link if it is up)
+#   --no-ntp            / PYRA_NO_NTP=1        don't set up chrony as the LAN NTP server
 #   PYRA_SSH_PORT=22                           SSH port kept open (allowed first)
 #   PYRA_NODE_MQTT_USER=pyra-node              MQTT username for the ESP32 node(s)
 set -euo pipefail
@@ -14,6 +16,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 [[ $EUID -eq 0 ]] || { echo "run as root (sudo)"; exit 1; }
 
 NO_UFW="${PYRA_NO_UFW:-0}"
+NO_NTP="${PYRA_NO_NTP:-0}"
 ALLOW_FROM="${PYRA_ALLOW_FROM:-}"
 SSH_PORT="${PYRA_SSH_PORT:-22}"
 HUB_MQTT_USER="pyra-hub"
@@ -21,8 +24,9 @@ NODE_MQTT_USER="${PYRA_NODE_MQTT_USER:-pyra-node}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-ufw) NO_UFW=1 ;;
+    --no-ntp) NO_NTP=1 ;;
     --allow-from) ALLOW_FROM="$2"; shift ;;
-    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
     *) echo "unknown option: $1"; exit 1 ;;
   esac
   shift
@@ -37,6 +41,7 @@ gen() { python3 -c 'import secrets; print(secrets.token_urlsafe(32))'; }
 
 PKGS=(python3 python3-venv mosquitto mosquitto-clients avahi-daemon)
 [[ "$NO_UFW" == "1" ]] || PKGS+=(ufw)
+[[ "$NO_NTP" == "1" ]] || PKGS+=(chrony)   # replaces systemd-timesyncd
 apt-get update
 apt-get install -y "${PKGS[@]}"
 
@@ -119,12 +124,41 @@ MOSQ_EOF
 systemctl enable mosquitto
 systemctl restart mosquitto
 
+# ---------- LAN / USB subnets that may reach the hub ----------
+if [[ -z "$ALLOW_FROM" ]]; then
+  ALLOW_FROM="$(ip -o -4 route show scope link 2>/dev/null \
+    | awk '$1 ~ /\// && $3 !~ /^(docker|br-|veth)/ {print $1}' | sort -u | tr '\n' ' ')"
+fi
+
+# ---------- chrony: NTP server for the ESP32 nodes (signed pulses need real time) -------
+# The node refuses signed commands until its clock is synced; with no internet (or a
+# USB-only link) the Pi is its only time source. `local stratum 10 orphan` keeps serving
+# the Pi's own clock when upstream servers are unreachable. The Pi 5 RTC (with a battery)
+# or fake-hwclock keeps that clock sane across reboots.
+CHRONY_CONF=/etc/chrony/conf.d/pyra-claw.conf
+if [[ "$NO_NTP" != "1" ]]; then
+  install -d /etc/chrony/conf.d
+  {
+    echo "# Managed by pyra-claw hub/install.sh"
+    if [[ -n "${ALLOW_FROM// }" ]]; then
+      for net in $ALLOW_FROM; do echo "allow $net"; done
+    else
+      echo "# no LAN subnet detected: allow RFC1918 ranges"
+      echo "allow 10.0.0.0/8"; echo "allow 172.16.0.0/12"; echo "allow 192.168.0.0/16"
+    fi
+    echo "local stratum 10 orphan"
+  } > "$CHRONY_CONF"
+  grep -qE '^\s*confdir\s+/etc/chrony/conf.d' /etc/chrony/chrony.conf \
+    || echo "confdir /etc/chrony/conf.d" >> /etc/chrony/chrony.conf
+  systemctl enable chrony
+  systemctl restart chrony
+  echo "chrony: serving NTP to: ${ALLOW_FROM:-RFC1918}"
+else
+  echo "NTP step skipped (--no-ntp / PYRA_NO_NTP=1): nodes need internet NTP for signed pulses"
+fi
+
 # ---------- firewall (optional, on by default) ----------
 if [[ "$NO_UFW" != "1" ]]; then
-  if [[ -z "$ALLOW_FROM" ]]; then
-    ALLOW_FROM="$(ip -o -4 route show scope link 2>/dev/null \
-      | awk '$1 ~ /\// && $3 !~ /^(docker|br-|veth)/ {print $1}' | sort -u | tr '\n' ' ')"
-  fi
   ufw allow "$SSH_PORT/tcp" comment 'ssh (pyra-claw keeps this open)'   # first: no lockout
   ufw default deny incoming
   ufw default allow outgoing
@@ -133,13 +167,15 @@ if [[ "$NO_UFW" != "1" ]]; then
       ufw allow from "$net" to any port 8787 proto tcp comment 'pyra-hub'
       ufw allow from "$net" to any port 1883 proto tcp comment 'mosquitto'
       ufw allow from "$net" to any port 5353 proto udp comment 'mdns (app hub discovery)'
+      [[ "$NO_NTP" == "1" ]] || ufw allow from "$net" to any port 123 proto udp comment 'ntp (chrony for nodes)'
     done
-    echo "Firewall: 8787/1883 allowed from: $ALLOW_FROM"
+    echo "Firewall: 8787/1883 (+123/udp NTP) allowed from: $ALLOW_FROM"
   else
     echo "Firewall: could not detect a LAN subnet; allowing 8787/1883 from anywhere"
     ufw allow 8787/tcp comment 'pyra-hub'
     ufw allow 1883/tcp comment 'mosquitto'
     ufw allow 5353/udp comment 'mdns (app hub discovery)'
+    [[ "$NO_NTP" == "1" ]] || ufw allow 123/udp comment 'ntp (chrony for nodes)'
   fi
   ufw --force enable
   ufw status verbose || true

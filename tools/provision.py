@@ -8,6 +8,7 @@ Examples:
   python tools/provision.py /dev/ttyUSB0 get
   python tools/provision.py /dev/ttyUSB0 provision ssid=MyWifi pass=secret broker_port=1883
   python tools/provision.py /dev/ttyUSB0 provision mqtt_user=pyra-node mqtt_pass=... hub_token=...
+  python tools/provision.py /dev/ttyUSB0 provision usb_pins=27,32,33 ntp=192.168.4.1
   python tools/provision.py /dev/ttyUSB0 reboot
   python tools/provision.py /dev/ttyUSB0 factory_reset
 """
@@ -22,6 +23,28 @@ import time
 import serial  # pyserial
 
 INT_KEYS = {"broker_port"}
+# Must match USB_SAFE_PINS / PULSE_PIN in firmware/esp32-wake/src/main.cpp.
+USB_SAFE_PINS = {4, 13, 18, 19, 21, 22, 23, 25, 27, 32, 33}
+USB_MAX_CH = 4
+
+
+def check_usb_pins(v: str) -> str | None:
+    """Return an error string, or None if `v` is a valid usb_pins value ("" = no channels)."""
+    if v == "":
+        return None
+    parts = v.rstrip(",").split(",")
+    try:
+        pins = [int(p) for p in parts]
+    except ValueError:
+        return f"usb_pins must be comma-separated GPIO numbers, got {v!r}"
+    if len(pins) > USB_MAX_CH:
+        return f"usb_pins: at most {USB_MAX_CH} channels"
+    if len(set(pins)) != len(pins):
+        return "usb_pins: duplicate GPIO"
+    bad = [p for p in pins if p not in USB_SAFE_PINS]
+    if bad:
+        return f"usb_pins: GPIO {bad} not allowed; use {sorted(USB_SAFE_PINS)} (see PROVISIONING.md)"
+    return None
 
 
 def parse_kv(pairs: list[str]) -> dict:
@@ -31,6 +54,11 @@ def parse_kv(pairs: list[str]) -> dict:
             raise SystemExit(f"expected key=value, got {p!r}")
         k, v = p.split("=", 1)
         cfg[k] = int(v) if k in INT_KEYS else v
+    err = check_usb_pins(cfg["usb_pins"]) if "usb_pins" in cfg else None
+    if "ntp" in cfg and (len(cfg["ntp"]) > 63 or " " in cfg["ntp"]):
+        err = "ntp: host or IP, max 63 chars, no spaces"
+    if err:
+        raise SystemExit(err)
     return cfg
 
 

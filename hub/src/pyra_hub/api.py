@@ -28,7 +28,7 @@ from .timers import Scheduler, Step, Timer, TimerIn, TimerStore
 from .wol import send_wol
 
 POWER_PULSE_MAX_MS = 300
-PROTOCOL_VERSION = "0.3"
+PROTOCOL_VERSION = "0.4"
 TIMER_ARM = "timer.arm"
 
 
@@ -54,7 +54,9 @@ def create_app(
     auth = Depends(make_dependency(cfg.auth_token))
     started = time.time()
     publish = bridge.publish_cmd if bridge else (lambda node, payload: False)
-    power = PowerController(cfg.devices, publish=publish, runner=runner)
+    power = PowerController(
+        cfg.devices, publish=publish, runner=runner, hub_token=cfg.node.hub_token
+    )
     store = TimerStore(cfg.timers_file or None)
     app.state.registry, app.state.gate, app.state.audit = registry, gate, audit
     app.state.power, app.state.store = power, store

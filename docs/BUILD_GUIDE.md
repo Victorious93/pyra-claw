@@ -116,8 +116,9 @@ sudo bash -c 'source /etc/pyra-claw/node-credentials; python3 tools/provision.py
 python tools/provision.py /dev/ttyUSB0 reboot
 ```
 - Serial 115200 8N1, JSON lines; commands accepted for **10 s after boot** or while no SSID is set [Certain]
-- `hub_token` must equal hub `[node] hub_token`; the node needs **internet NTP** or it refuses pulses (fail closed) [Certain]
-- Keys: `ssid pass broker broker_port node_id mqtt_user mqtt_pass pc_mac pc_broadcast hub_token`
+- `hub_token` must equal hub `[node] hub_token`; the node needs **NTP time** or it refuses signed commands (fail closed). Since firmware 0.4 it asks the Pi's chrony first (key `ntp`, default the broker host), so no internet is needed [Certain, from code]
+- Keys: `ssid pass broker broker_port node_id mqtt_user mqtt_pass pc_mac pc_broadcast hub_token ntp usb_pins`
+- USB power channels: `python tools/provision.py /dev/ttyUSB0 provision usb_pins=27,32,33` (wiring: MANUAL.md §4.1, safe GPIOs: PROVISIONING.md)
 
 **Verify:** `python tools/provision.py /dev/ttyUSB0 get` (secrets show `***`); `curl http://pyra-esp32-wake-01.local/health` shows `time_synced: true`; on the Pi:
 ```sh
@@ -142,7 +143,7 @@ power_off = { backend = "adb", serial = "ZX1G22ABCD" }
 [devices.phone3]
 charge = { backend = "mock" }
 ```
-- `esp32_relay` is a **stub** (firmware does not implement `usb_power`) [Certain]
+- `esp32_relay` (firmware ≥ 0.4): `charge = { backend = "esp32_relay", node = "esp32-wake-01", channel = 0 }`, wired per MANUAL.md §4.1. Off is HMAC-signed by the hub [Certain, from code; untested on hardware]
 
 > ⚠️ Keep old Li-ion phones at ~40–60 % charge, never block the fan, retire any phone whose back or screen lifts. PETG is not a fire barrier. [Likely]
 
@@ -179,7 +180,7 @@ charge = { backend = "mock" }
 |---|---|
 | App 401 | Token mismatch vs `/etc/pyra-claw/config.toml` |
 | Node offline | `mqtt_user`/`mqtt_pass` vs `node-credentials`; `mosquitto_sub` command above; `sudo ufw status` |
-| `rejected_no_time_sync` | node has no internet NTP |
+| `rejected_no_time_sync` | node can't reach NTP: `chronyc clients` on the Pi, ufw 123/udp, node `ntp` value |
 | `rejected_bad_sig` | `hub_token` differs hub ↔ node |
 | `rejected_stale_ts` | Pi clock off by >30 s |
 | Pulse 503 from hub | no `[node] hub_token` configured |

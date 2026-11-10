@@ -2,6 +2,9 @@
 
 sig = hex(HMAC-SHA256(hub_token, f"{id}|{action}|{ms}|{ts}"))
 `ts` is integer Unix seconds. The ESP32 node verifies the same string.
+
+Protocol v0.4 adds ``usb_power`` off: action ``usb_power_off`` with the channel number
+in the ``ms`` slot, so a signature for channel 0 can't be replayed against channel 1.
 """
 
 from __future__ import annotations
@@ -42,4 +45,17 @@ def signed_pulse(hub_token: str, cmd_id: str, ms: int, ts: int | None = None) ->
         "ms": int(ms),
         "ts": ts,
         "sig": sign(hub_token, cmd_id, "power_pulse", ms, ts),
+    }
+
+
+def signed_usb_off(hub_token: str, cmd_id: str, channel: int, ts: int | None = None) -> dict:
+    """Build the MQTT body that switches one ESP32 USB 5 V channel off (protocol v0.4)."""
+    ts = int(time.time()) if ts is None else int(ts)
+    return {
+        "action": "usb_power",
+        "channel": int(channel),
+        "on": False,
+        "id": cmd_id,
+        "ts": ts,
+        "sig": sign(hub_token, cmd_id, "usb_power_off", int(channel), ts),
     }

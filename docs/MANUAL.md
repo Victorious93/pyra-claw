@@ -52,15 +52,39 @@ flowchart LR
 
 > ⚠️ A press longer than ~4 s force-powers-off most PCs. The firmware caps a pulse at **300 ms** and enforces a **5 s cooldown**.
 
+### 4.1 USB power channels (firmware 0.4, `esp32_relay`) ⚠️ CONCEPT / UNTESTED
+![USB power wiring](img/usb-power-wiring.png)
+
+One switch per phone/USB line, driven by a GPIO listed in the node's `usb_pins` key (e.g. `usb_pins=27,32,33` → channels 0, 1, 2). Only the 5 V (VBUS) wire is switched; GND and the data lines go straight through.
+
+| From | To | Notes |
+|---|---|---|
+| ESP32 GPIO (27/32/33) | 1 kΩ → NPN base (2N2222/BC547) or 2N7000 gate | 10 kΩ from base/gate to GND keeps the line **off** while the ESP32 resets |
+| NPN collector | P-MOSFET gate (AO3401 or similar logic-level, ≥ 2 A) | 10 kΩ gate → source pull-up |
+| NPN emitter | common GND | |
+| P-MOSFET source | +5 V supply (≥ 2.5 A per phone) | add a polyfuse per line |
+| P-MOSFET drain | USB port VBUS | |
+| 5 V supply GND | ESP32 GND, USB GND | **common ground is required** |
+
+Relay alternative: one 5 V relay module per channel (COM = +5 V, NO = VBUS), driven through the same NPN stage, with a flyback diode. Never drive a coil or MOSFET gate straight from a GPIO.
+
+- **Safe GPIOs:** 27, 32, 33 (recommended), 25, 13, 4, 18, 19, 21, 22, 23. Never 0, 2, 5, 12, 15 (strapping), 6–11 (flash), 34–39 (input only), 1/3 (serial), 14, 16/17 or 26 (pulse). Full table in [PROVISIONING.md](PROVISIONING.md). The firmware and `provision.py` reject the others. [Certain]
+- **Boot state:** each channel returns to its last saved state (NVS); a fresh node starts with every channel **on**. [Certain, from code]
+- **Switching on** is unsigned. **Switching off** must carry the hub's HMAC signature (PROTOCOL.md v0.4) and needs NTP time on the node. [Certain, from code]
+- Cutting VBUS stops charging. A phone with a battery keeps running. [Certain]
+- Values above are typical, not tested here [Likely]; check your MOSFET's datasheet for V<sub>GS(th)</sub> and R<sub>DS(on)</sub> at −5 V.
+
 ## 5. Install
 ![Setup](../assets/visuals/05c_setup_steps.png)
 1. **Pi:** Flash Bookworm 64-bit, then `git clone` this repo and run `sudo ./hub/install.sh`. Save the printed token. The installer (safe to re-run; it never overwrites existing secrets):
    - configures Mosquitto for the network (`/etc/mosquitto/conf.d/pyra-claw.conf`: `listener 1883`, `allow_anonymous false`, password file `/etc/mosquitto/pyra-claw.passwd`) and creates MQTT users `pyra-hub` and `pyra-node`;
    - writes the hub's MQTT login and the node `hub_token` into `config.toml`, and a root-only copy of the node secrets to `/etc/pyra-claw/node-credentials`;
    - advertises the hub over mDNS (avahi `/etc/avahi/services/pyra-hub.service`: `_pyra-hub._tcp` and `_http._tcp` on 8787) so the app's **Scan** can find it;
-   - enables **ufw** (default on): allows SSH (`22/tcp`, or `PYRA_SSH_PORT`) first, then `8787/tcp`, `1883/tcp` and mDNS `5353/udp` only from the Pi's directly connected subnets (LAN, USB tether), denies other inbound. Override the subnets with `--allow-from "192.168.1.0/24 192.168.42.0/24"` (or `PYRA_ALLOW_FROM`), or skip the firewall with `--no-ufw` (or `PYRA_NO_UFW=1`). If the USB tether comes up after install, re-run with `--allow-from` including its subnet. Edit `/etc/pyra-claw/config.toml` and set `pc.mac`, then run `sudo systemctl restart pyra-hub`.
+   - sets up **chrony** as the NTP server for the same subnets (`/etc/chrony/conf.d/pyra-claw.conf`: one `allow <subnet>` per subnet plus `local stratum 10 orphan`, so it keeps serving the Pi's own clock with no internet). The ESP32 asks the Pi for time first, so signed pulses work offline and over USB-only links. Skip with `--no-ntp` (or `PYRA_NO_NTP=1`). Installing chrony replaces `systemd-timesyncd`. [Likely: Debian packaging]
+   - enables **ufw** (default on): allows SSH (`22/tcp`, or `PYRA_SSH_PORT`) first, then `8787/tcp`, `1883/tcp`, NTP `123/udp` and mDNS `5353/udp` only from the Pi's directly connected subnets (LAN, USB tether), denies other inbound. Override the subnets with `--allow-from "192.168.1.0/24 192.168.42.0/24"` (or `PYRA_ALLOW_FROM`), or skip the firewall with `--no-ufw` (or `PYRA_NO_UFW=1`). If the USB tether comes up after install, re-run with `--allow-from` including its subnet. Edit `/etc/pyra-claw/config.toml` and set `pc.mac`, then run `sudo systemctl restart pyra-hub`.
 2. **PC:** Enable Wake-on-LAN in BIOS/UEFI and in the NIC driver (Windows: *Wake on Magic Packet*). Turn off Fast Startup if WOL from S5 fails.
-3. **ESP32:** Flash once with `pio run -t upload` (from `firmware/esp32-wake`). Then provision Wi-Fi, the hub IP, the PC MAC, and the MQTT login and `hub_token` from `/etc/pyra-claw/node-credentials` over USB serial, no rebuild needed: `python tools/provision.py /dev/ttyUSB0 provision ssid=... pass=... broker=192.168.4.1 pc_mac=AA:BB:CC:DD:EE:FF mqtt_user=pyra-node mqtt_pass=... hub_token=...`, then `... reboot`. The node needs internet NTP for signed pulses. The node accepts commands for 10 s after boot, or any time while no Wi-Fi SSID is set. See [PROVISIONING.md](PROVISIONING.md) (UNTESTED ON HARDWARE). Alternatively, copy `include/config.example.h` to `config.h` for compile-time defaults; provisioned values override them.
+3. **ESP32:** Flash once with `pio run -t upload` (from `firmware/esp32-wake`). Then provision Wi-Fi, the hub IP, the PC MAC, and the MQTT login and `hub_token` from `/etc/pyra-claw/node-credentials` over USB serial, no rebuild needed: `python tools/provision.py /dev/ttyUSB0 provision ssid=... pass=... broker=192.168.4.1 pc_mac=AA:BB:CC:DD:EE:FF mqtt_user=pyra-node mqtt_pass=... hub_token=...`, then `... reboot`. The node gets NTP time from the Pi first (the `ntp` key, default the `broker` host), then from the internet; it refuses signed commands until its clock is set. Add `usb_pins=27,32,33` if you wired USB power channels (section 4.1). The node accepts commands for 10 s after boot, or any time while no Wi-Fi SSID is set. See [PROVISIONING.md](PROVISIONING.md) (UNTESTED ON HARDWARE). Alternatively, copy `include/config.example.h` to `config.h` for compile-time defaults; provisioned values override them.
+   - **Firmware size:** 0.4.0 uses about **90.8 %** of the default 1.25 MB app partition (`pio run`, Nov 2026). If a future build no longer fits, add `board_build.partitions = min_spiffs.csv` to `platformio.ini` (1.9 MB app slots, keeps OTA, shrinks SPIFFS, which this firmware doesn't use). Changing the partition table needs one full USB flash (`pio run -t erase -t upload`) and wipes NVS, so re-provision afterwards. [Likely]
 4. **Phone:** Install the APK from the CI artifact (v0.4.0+ is signed with a fixed debug key; if an older Pyra Claw is installed, uninstall it once first). Turn on USB tethering (Pi usually reaches it via `usb0`) or join the same Wi-Fi. On first launch the app opens **Pair your hub**: press **Scan** or type the address, paste `auth_token` from `/etc/pyra-claw/config.toml`, press **Test connection**, then **Save**.
 
 ## 6. Usage: the Android app (v0.4) ⚠️ NOT YET TESTED ON A REAL PHONE + HUB
@@ -105,7 +129,7 @@ The ESP32 serves HTTP on port 80 (mDNS `pyra-<node_id>.local`): `GET /health` (n
 |---|---|
 | App says 401 | Token is wrong. Compare it with `/etc/pyra-claw/config.toml` |
 | Node shows offline | ESP32 Wi-Fi/MQTT settings (`mqtt_user`/`mqtt_pass` must match `node-credentials`). Run `sudo bash -c 'source /etc/pyra-claw/node-credentials; mosquitto_sub -u "$HUB_MQTT_USER" -P "$HUB_MQTT_PASS" -t "pyra/#" -v'` on the Pi. Check `sudo ufw status` |
-| Pulse rejected (`power_pulse:rejected_*` in status) | `no_time_sync`: node has no internet NTP. `bad_sig`: `hub_token` differs between hub and node. `stale_ts`: Pi clock is off. See PROTOCOL.md |
+| Pulse rejected (`power_pulse:rejected_*` in status) | `no_time_sync`: node can't reach NTP. Check `chronyc clients` and `sudo ufw status` (123/udp) on the Pi, and the `ntp` value in node status. `bad_sig`: `hub_token` differs between hub and node. `stale_ts`: Pi clock is off. See PROTOCOL.md |
 | WOL doesn't wake the PC | BIOS WOL is off, Fast Startup is on, MAC is wrong, or the PC is on a different subnet |
 | Pulse does nothing | PWR_SW polarity. Swap the PC817 pins 3 and 4 |
 | Hub won't start | `journalctl -u pyra-hub -e`. The token must not be `CHANGE_ME` |
@@ -153,7 +177,7 @@ charge = { backend = "mock" }
 |---|---|---|---|
 | `uhubctl` | Runs `uhubctl -l <location> -p <port> -a on\|off`, which switches VBUS on a hub port. No VBUS means no charging. | A USB hub with real **per-port power switching** (PPPS), e.g. UUGear MEGA4, plus uhubctl ≥ 2.6.0 (Pi 5 support). Needs root or a udev rule. | implemented |
 | `adb` | `adb -s <serial> shell su -c '<profile>'` writes the kernel charging control (sysfs/debugfs). | **Rooted** phone, USB debugging authorised, known control node for that kernel | implemented (profiles `nexus5`, `nexus6`, `generic`) |
-| `esp32_relay` | Hub publishes `{"action":"usb_power","channel":N,"on":bool}` over MQTT to an ESP32 that drives a relay or high-side MOSFET on the USB 5 V line. | ESP32 plus relay or logic-level P-MOSFET high-side switch per channel | **stub**: the firmware does not implement `usb_power` yet |
+| `esp32_relay` | Hub publishes `{"action":"usb_power","channel":N,"on":bool}` over MQTT to an ESP32 that drives a relay or high-side MOSFET on the USB 5 V line. `on:false` is HMAC-signed by the hub. | ESP32 (firmware ≥ 0.4, `usb_pins` provisioned) plus relay or logic-level P-MOSFET high-side switch per channel, see 4.1 | implemented in firmware 0.4 (untested on hardware) |
 | `mock` | Records calls only | none | implemented (tests/demo) |
 
 Evidence:

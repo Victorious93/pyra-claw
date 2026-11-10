@@ -35,7 +35,7 @@ PASSWD=/etc/mosquitto/pyra-claw.passwd
 MOSQ_CONF=/etc/mosquitto/conf.d/pyra-claw.conf
 gen() { python3 -c 'import secrets; print(secrets.token_urlsafe(32))'; }
 
-PKGS=(python3 python3-venv mosquitto mosquitto-clients)
+PKGS=(python3 python3-venv mosquitto mosquitto-clients avahi-daemon)
 [[ "$NO_UFW" == "1" ]] || PKGS+=(ufw)
 apt-get update
 apt-get install -y "${PKGS[@]}"
@@ -132,18 +132,26 @@ if [[ "$NO_UFW" != "1" ]]; then
     for net in $ALLOW_FROM; do
       ufw allow from "$net" to any port 8787 proto tcp comment 'pyra-hub'
       ufw allow from "$net" to any port 1883 proto tcp comment 'mosquitto'
+      ufw allow from "$net" to any port 5353 proto udp comment 'mdns (app hub discovery)'
     done
     echo "Firewall: 8787/1883 allowed from: $ALLOW_FROM"
   else
     echo "Firewall: could not detect a LAN subnet; allowing 8787/1883 from anywhere"
     ufw allow 8787/tcp comment 'pyra-hub'
     ufw allow 1883/tcp comment 'mosquitto'
+    ufw allow 5353/udp comment 'mdns (app hub discovery)'
   fi
   ufw --force enable
   ufw status verbose || true
 else
   echo "Firewall step skipped (--no-ufw / PYRA_NO_UFW=1)"
 fi
+
+# ---------- mDNS advertisement (app "Scan" finds the hub) ----------
+install -d /etc/avahi/services
+install -m 644 "$HERE/avahi/pyra-hub.service" /etc/avahi/services/pyra-hub.service
+systemctl enable avahi-daemon
+systemctl restart avahi-daemon || echo "avahi-daemon restart failed; the app can still connect by address"
 
 install -m 644 "$HERE/systemd/pyra-hub.service" /etc/systemd/system/pyra-hub.service
 systemctl daemon-reload

@@ -40,10 +40,18 @@ _Steps above are taken from this repo’s build files / existing docs; anything 
 <p>
 <img src="assets/visuals/02_hero_desk_setup_16x9_alt-zimage.png" width="640" alt="Hero">
 </p>
+App v0.4 (real renders of the Compose screens with sample data, via Robolectric; not yet run against real hardware):
 <p>
-<img src="assets/visuals/03a_dashboard_9x16.png" width="180" alt="Dashboard">
-<img src="assets/visuals/03b_power_pulse_confirm_9x16.png" width="180" alt="Power pulse confirm">
-<img src="assets/visuals/03c_nodes_detail_9x16.png" width="180" alt="Nodes">
+<img src="docs/img/app/02-dashboard.png" width="180" alt="Dashboard">
+<img src="docs/img/app/04-approval-countdown.png" width="180" alt="Approval countdown">
+<img src="docs/img/app/06-timers.png" width="180" alt="Timers">
+<img src="docs/img/app/07-timer-editor.png" width="180" alt="Timer editor">
+</p>
+<p>
+<img src="docs/img/app/01-onboarding.png" width="180" alt="Pairing">
+<img src="docs/img/app/05-devices.png" width="180" alt="Devices">
+<img src="docs/img/app/08-activity.png" width="180" alt="Activity">
+<img src="docs/img/app/10-help.png" width="180" alt="Help">
 </p>
 <p><img src="assets/visuals/05a_architecture.png" width="640" alt="Architecture"></p>
 

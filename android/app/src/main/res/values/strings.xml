@@ -1,1 +1,5 @@
-<resources><string name="app_name">Pyra Claw</string></resources>
+<resources>
+    <string name="app_name">Pyra Claw</string>
+    <string name="notif_channel_name">Hub link</string>
+    <string name="notif_channel_desc">Keeps the Pyra Claw hub connection alive for timers and remote commands</string>
+</resources>

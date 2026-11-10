@@ -39,8 +39,15 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: "17" }
       - uses: gradle/actions/setup-gradle@v4
-      - run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+      - run: chmod +x gradlew && ./gradlew assembleDebug testDebugUnitTest --no-daemon
       - uses: actions/upload-artifact@v4
         with:
           name: pyra-claw-debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pyra-claw-android-tests
+          path: |
+            android/app/build/reports/tests/testDebugUnitTest/
+            docs/img/app/*.png

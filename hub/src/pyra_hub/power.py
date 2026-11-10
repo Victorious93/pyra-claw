@@ -11,17 +11,20 @@ Backends:
   through a root-only sysfs/debugfs switch chosen by ``profile``; power-off is
   ``reboot -p``. Power-on is not possible over adb (the phone is off).
 - ``esp32_relay``: ESP32 GPIO driving a relay/MOSFET on each USB 5V line, relayed
-  over MQTT as ``{"action":"usb_power","channel":N,"on":bool}``. The current
-  firmware does NOT implement this action yet; the hub side is a stub contract.
+  over MQTT as ``{"action":"usb_power","channel":N,"on":bool}`` (firmware >= 0.4,
+  protocol v0.4). ``on:false`` carries an HMAC signature, see signing.py.
 - ``mock``: records calls in memory, for tests and dry runs.
 """
 
 from __future__ import annotations
 
 import subprocess
+import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
+
+from .signing import signed_usb_off
 
 Runner = Callable[[Sequence[str], float], subprocess.CompletedProcess]
 
@@ -173,26 +176,55 @@ class AdbBackend(Backend):
 
 
 class Esp32RelayBackend(Backend):
-    """Stub: relay over MQTT to an ESP32 driving a relay/MOSFET per USB 5V line."""
+    """MQTT relay to an ESP32 driving a relay/high-side MOSFET per USB 5V line (fw >= 0.4).
+
+    ``on`` is sent unsigned. ``off`` is HMAC-signed with ``hub_token`` (same scheme as
+    power_pulse) because only the hub may cut a line. Whether an off needs Don's approval
+    is decided by the hub before we get here: ``device.power_off`` is in
+    APPROVAL_REQUIRED, ``charge.off`` is not. The wire command is the same either way.
+    """
 
     name = "esp32_relay"
     supports_power_on = True
 
-    def __init__(self, node: str, channel: int, publish: Callable[[str, dict], bool]) -> None:
+    def __init__(
+        self,
+        node: str,
+        channel: int,
+        publish: Callable[[str, dict], bool],
+        hub_token: str = "",
+    ) -> None:
         self.node, self.channel, self.publish = node, int(channel), publish
+        self.hub_token = hub_token
 
-    def charge(self, device_id: str, on: bool) -> dict[str, Any]:
-        payload = {"action": "usb_power", "channel": self.channel, "on": on}
+    def _send(self, on: bool) -> dict[str, Any]:
+        cmd_id = f"usb-{uuid.uuid4().hex[:16]}"
+        if on:
+            payload = {"action": "usb_power", "channel": self.channel, "on": True, "id": cmd_id}
+        else:
+            if not self.hub_token or self.hub_token.startswith("CHANGE_ME"):
+                raise BackendError("esp32_relay: node.hub_token not configured; cannot sign off")
+            payload = signed_usb_off(self.hub_token, cmd_id, self.channel)
         relayed = self.publish(self.node, payload)
         return {
             "backend": "esp32_relay",
-            "charging": on,
+            "node": self.node,
+            "channel": self.channel,
+            "id": cmd_id,
             "relayed": relayed,
-            "firmware_support": False,
+            "signed": not on,
         }
 
+    def charge(self, device_id: str, on: bool) -> dict[str, Any]:
+        return {**self._send(on), "charging": on}
+
     def power_on(self, device_id: str) -> dict[str, Any]:
-        return {**self.charge(device_id, True), "power": "on_requested", "reliability": "guessing"}
+        return {**self._send(True), "power": "on_requested", "reliability": "guessing"}
+
+    def power_off(self, device_id: str) -> dict[str, Any]:
+        # Cutting USB 5 V does not shut a phone down (it runs on battery); it only stops
+        # charging / powers off battery-less devices. [Certain] for phones with batteries.
+        return {**self._send(False), "power": "usb_cut"}
 
 
 @dataclass
@@ -211,6 +243,7 @@ def build_backend(
     spec: dict[str, Any],
     publish: Callable[[str, dict], bool] | None = None,
     runner: Runner = default_runner,
+    hub_token: str = "",
 ) -> Backend:
     kind = spec.get("backend", "mock")
     if kind == "mock":
@@ -224,7 +257,9 @@ def build_backend(
             spec["serial"], spec.get("profile", "generic"), spec.get("binary", "adb"), runner=runner
         )
     if kind == "esp32_relay":
-        return Esp32RelayBackend(spec["node"], spec["channel"], publish or (lambda n, p: False))
+        return Esp32RelayBackend(
+            spec["node"], spec["channel"], publish or (lambda n, p: False), hub_token
+        )
     raise ValueError(f"unknown backend {kind!r}")
 
 
@@ -239,6 +274,7 @@ class PowerController:
         devices: dict[str, DeviceConfig],
         publish: Callable[[str, dict], bool] | None = None,
         runner: Runner = default_runner,
+        hub_token: str = "",
     ) -> None:
         self.devices = devices
         self._b: dict[tuple[str, str], Backend] = {}
@@ -246,7 +282,7 @@ class PowerController:
             for kind in KINDS:
                 spec = getattr(d, kind) or d.charge
                 if spec:
-                    self._b[(d.id, kind)] = build_backend(spec, publish, runner)
+                    self._b[(d.id, kind)] = build_backend(spec, publish, runner, hub_token)
 
     def spec(self, target: str, kind: str) -> dict[str, Any]:
         d = self.devices[target]

@@ -12,4 +12,6 @@
 #define PULSE_DEFAULT_MS 300
 #define PC_BROADCAST   "255.255.255.255"
 #define HUB_TOKEN      ""
+#define NTP_SERVER     ""              // "" = use MQTT_HOST (the Pi runs chrony)
+#define USB_PINS       ""              // e.g. "27,32,33": one GPIO per USB 5 V channel
 // All of the above can be overridden at runtime over USB serial (docs/PROVISIONING.md).

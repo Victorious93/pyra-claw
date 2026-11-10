@@ -34,7 +34,8 @@ hub_token = "CHANGE_ME_NODE"
 #   adb:         { backend = "adb", serial = "0123456789ABCDEF", profile = "nexus5" }
 #                profiles: nexus5, nexus6, generic (root required for charge control)
 #   esp32_relay: { backend = "esp32_relay", node = "esp32-wake-01", channel = 0 }
-#                (firmware does NOT implement usb_power yet)
+#                (firmware >= 0.4; channel N = Nth GPIO in the node's `usb_pins`, from 0.
+#                 "off" is HMAC-signed with hub_token; needs NTP on the node)
 #   mock:        { backend = "mock" }  (logs only)
 #
 # [devices.phone1]

@@ -1,6 +1,24 @@
-# Pyra Claw Protocol (v0.3)
+# Pyra Claw Protocol (v0.4)
 
-> ⚠️ v0.2 firmware changes and all v0.3 device-power backends are **UNTESTED ON HARDWARE**.
+> ⚠️ v0.2–v0.4 firmware changes and all device-power backends are **UNTESTED ON HARDWARE**.
+
+## Changes in v0.4 (hub 0.4.0, firmware 0.4.0)
+- `protocol` is now `"0.4"`. All v0.3 REST calls are unchanged (VictorSuite's `pc.wake` included).
+- **NTP from the hub.** `install.sh` runs chrony on the Pi as an NTP server for the LAN/USB subnets (with `local stratum 10 orphan`, so it keeps serving with no internet). The node tries its `ntp` key first (default: the `broker` host, i.e. the Pi), then `pool.ntp.org` and `time.google.com`. Node status and `/health` gain `"ntp":"<server tried first>"`.
+- **`usb_power` is implemented in firmware** (the hub's `esp32_relay` backend is no longer a stub). Hub → node on `pyra/node/<id>/cmd`:
+  ```json
+  {"action":"usb_power","channel":0,"on":true,"id":"usb-1a2b..."}
+  {"action":"usb_power","channel":0,"on":false,"id":"usb-3c4d...","ts":1730000000,"sig":"<64 hex>"}
+  ```
+  - `channel` is 0-based: the Nth GPIO in the node's `usb_pins` key.
+  - **On is unsigned** (fail-safe direction). **Off must be signed**: `sig = hex(HMAC-SHA256(hub_token, "<id>|usb_power_off|<channel>|<ts>"))`. The channel sits in the `ms` slot of the v0.2 canonical string, so a signature can't be replayed on another channel or as a `power_pulse`. Same checks as `power_pulse` (time sync, ±30 s skew, 16-id replay ring), no cooldown.
+  - Why sign off but not gate `charge.off`: the hub decides **approval** (`device.power_off` needs one, `charge.off` doesn't, unchanged from v0.3). The signature only guarantees the command came from the hub, so another MQTT client can't cut a line. Both `charge.off` and an approved `device.power_off` on an `esp32_relay` device go out as the same signed `on:false`.
+  - Results in node status `detail`: `usb_power:<ch>:on|off`, or `usb_power:<ch>:<reason>` with the reasons from the table below plus `rejected_bad_channel`.
+  - Node status and `/health` gain `"usb":[true,false,...]` (one entry per configured channel).
+  - State is saved in NVS (`fleet/usb_state`) on every change and restored at boot. **Default is on** for a fresh node or a channel never switched off. During reset/flash the GPIO floats; the 10 kΩ pull-down on the driver transistor holds the line **off** for that moment (wiring: MANUAL.md §4.1).
+- Hub `esp32_relay` results now include `signed`, `id`, `channel`; `device.power_off` returns `"power":"usb_cut"`. A phone with a battery keeps running when its USB 5 V is cut; this only stops charging.
+- No HTTP `usb_power` route on the node yet (MQTT only).
+- **`wake_token`** (new optional NVS key, ≥ 16 chars): HTTP `POST /wake` accepts `Authorization: Bearer <wake_token>` **or** `<hub_token>`. The wake token can't sign anything, so the phone app's Direct ESP32 mode never needs the HMAC key. `/health` gains `can_wake`. `install.sh` generates `NODE_WAKE_TOKEN`.
 
 ## Changes in v0.3 (Timer tab, backward compatible)
 - `protocol` is now `"0.3"`. Nothing that existed in v0.2 changed: `pc.wake` with `"target": null` (VictorSuite) and the `pc.power_pulse` approval flow work exactly as before.
@@ -104,7 +122,7 @@ Hub → node `power_pulse` (MQTT `pyra/node/<id>/cmd`, or HTTP `POST /pulse` on 
 | `rejected_cooldown` | less than 5 s since the last pulse | 429 |
 
 - Reference implementation: `hub/src/pyra_hub/signing.py` (tests in `hub/tests/test_signing.py`).
-- The node gets time from NTP (`configTime`, UTC: pool.ntp.org, time.google.com, time.cloudflare.com). Status and `/health` report `time_synced`.
+- The node gets time from NTP (`configTime`, UTC). Since v0.4 it asks the hub first (`ntp` key, default the `broker` host), then pool.ntp.org and time.google.com. Status and `/health` report `time_synced` and `ntp`.
 - `wake_pc` over MQTT stays unsigned (it only sends a magic packet).
 
 ## ESP32 standalone HTTP API (v0.2)
@@ -112,8 +130,8 @@ Port 80 on the node; optional mDNS name `pyra-<node_id>.local`. Works without th
 
 | Endpoint | Auth | Effect |
 |---|---|---|
-| `GET /health` | none | `{ok, node_id, fw, protocol, time_synced, mqtt, ip}` |
-| `POST /wake` | `Authorization: Bearer <hub_token>` | sends WOL to `pc_mac`/`pc_broadcast`. 1 per 10 s, else **429**. 401 bad token, 503 no token provisioned |
+| `GET /health` | none | `{ok, node_id, fw, protocol, time_synced, mqtt, ip, ntp, usb, can_wake}` |
+| `POST /wake` | `Authorization: Bearer <wake_token>` (v0.4) or `<hub_token>` | sends WOL to `pc_mac`/`pc_broadcast`. 1 per 10 s, else **429**. 401 bad token, 503 no token provisioned |
 | `POST /pulse` | signed JSON body (above) | power pulse; never accepted unsigned. Codes per table above, 200 on success |
 
 ```

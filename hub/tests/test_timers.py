@@ -228,7 +228,7 @@ def test_pc_wake_target_null_still_works(tmp_path):
         headers=H,
     )
     assert r.status_code == 200 and "wol_bytes" in r.json()["result"]
-    assert c.get("/api/status", headers=H).json()["protocol"] == "0.3"
+    assert c.get("/api/status", headers=H).json()["protocol"] == "0.4"
 
 
 def test_ws_includes_timers(tmp_path):

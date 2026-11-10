@@ -1,6 +1,7 @@
 // Pyra Claw ESP32 wake node.
 // CONCEPT / UNTESTED: verify wiring before connecting to a real PC.
 // USB serial provisioning contract v1: see docs/PROVISIONING.md.
+// Protocol v0.4: hub-first NTP (`ntp` key) and per-channel `usb_power` switching.
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <ESPmDNS.h>
@@ -19,10 +20,16 @@
 #endif
 
 #ifndef FW_VERSION
-#define FW_VERSION "0.3.0"
+#define FW_VERSION "0.4.0"
 #endif
 #ifndef HUB_TOKEN
 #define HUB_TOKEN ""
+#endif
+#ifndef NTP_SERVER
+#define NTP_SERVER ""
+#endif
+#ifndef USB_PINS
+#define USB_PINS ""
 #endif
 #ifndef PC_BROADCAST
 #define PC_BROADCAST "255.255.255.255"
@@ -32,7 +39,7 @@
 static const uint32_t PULSE_MAX_MS = 300;
 static const uint32_t PULSE_COOLDOWN_MS = 5000;
 static const uint32_t PROV_WINDOW_MS = 10000;
-static const char *PROTOCOL_VERSION = "0.2";
+static const char *PROTOCOL_VERSION = "0.4";
 static const long SIG_MAX_SKEW_S = 30;          // |node clock - ts| must be <= 30 s
 static const time_t TIME_VALID_AFTER = 1700000000;  // clock before this = no NTP sync yet
 static const uint32_t HTTP_WAKE_MIN_INTERVAL_MS = 10000;
@@ -44,14 +51,50 @@ static const char *NVS_NS = "fleet";
 // Runtime config: config.h defaults, overridden by NVS namespace "fleet".
 struct Cfg {
   String ssid, pass, broker, node_id, mqtt_user, mqtt_pass, pc_mac, pc_broadcast, hub_token;
+  String ntp;       // NTP server tried first; empty = use `broker` (the Pi hub runs chrony)
+  String usb_pins;  // comma-separated GPIOs, one per switched USB 5 V channel; empty = none
+  String wake_token;  // optional bearer for HTTP /wake only (phone direct mode); can't sign
   int broker_port;
 } cfg;
 
-static const char *STR_KEYS[] = {"ssid",      "pass",   "broker",       "node_id",  "mqtt_user",
-                                 "mqtt_pass", "pc_mac", "pc_broadcast", "hub_token"};
-static const char *ALL_KEYS[] = {"ssid",      "pass",      "broker", "broker_port",
-                                 "node_id",   "mqtt_user", "mqtt_pass", "pc_mac",
-                                 "pc_broadcast", "hub_token"};
+static const char *STR_KEYS[] = {"ssid",      "pass",   "broker",       "node_id",   "mqtt_user",
+                                 "mqtt_pass", "pc_mac", "pc_broadcast", "hub_token", "ntp",
+                                 "usb_pins", "wake_token"};
+static const char *ALL_KEYS[] = {"ssid",         "pass",      "broker",    "broker_port",
+                                 "node_id",      "mqtt_user", "mqtt_pass", "pc_mac",
+                                 "pc_broadcast", "hub_token", "ntp",       "usb_pins",
+                                 "wake_token"};
+
+// ---------- USB power channels (relay / high-side MOSFET per USB 5 V line) ----------
+// Only GPIOs that are not strapping (0,2,5,12,15), flash (6-11), UART0 (1,3),
+// input-only (34-39), PSRAM on WROVER (16,17), boot-glitching (14) or the pulse pin.
+static const int USB_MAX_CH = 4;
+static const uint8_t USB_SAFE_PINS[] = {4, 13, 18, 19, 21, 22, 23, 25, 27, 32, 33};
+int usbPin[USB_MAX_CH];
+int usbCount = 0;
+uint8_t usbState = 0xFF;  // bit n = channel n on; persisted in NVS "usb_state"
+
+// Parses "27,32,33" into out[]; returns count, or -1 if invalid (bad/unsafe/duplicate pin).
+int parseUsbPins(const char *s, int out[USB_MAX_CH]) {
+  int n = 0;
+  const char *p = s;
+  while (*p) {
+    char *end;
+    long v = strtol(p, &end, 10);
+    if (end == p || n >= USB_MAX_CH) return -1;
+    bool safe = v != PULSE_PIN;
+    bool listed = false;
+    for (uint8_t sp : USB_SAFE_PINS) listed |= (v == sp);
+    if (!safe || !listed) return -1;
+    for (int i = 0; i < n; i++)
+      if (out[i] == v) return -1;
+    out[n++] = (int)v;
+    p = end;
+    if (*p == ',') p++;
+    else if (*p) return -1;
+  }
+  return n;
+}
 
 String *strField(const char *k) {
   if (!strcmp(k, "ssid")) return &cfg.ssid;
@@ -63,11 +106,15 @@ String *strField(const char *k) {
   if (!strcmp(k, "pc_mac")) return &cfg.pc_mac;
   if (!strcmp(k, "pc_broadcast")) return &cfg.pc_broadcast;
   if (!strcmp(k, "hub_token")) return &cfg.hub_token;
+  if (!strcmp(k, "ntp")) return &cfg.ntp;
+  if (!strcmp(k, "usb_pins")) return &cfg.usb_pins;
+  if (!strcmp(k, "wake_token")) return &cfg.wake_token;
   return nullptr;
 }
 
 bool isSecret(const char *k) {
-  return !strcmp(k, "pass") || !strcmp(k, "mqtt_pass") || !strcmp(k, "hub_token");
+  return !strcmp(k, "pass") || !strcmp(k, "mqtt_pass") || !strcmp(k, "hub_token") ||
+         !strcmp(k, "wake_token");
 }
 
 bool parseMac(const char *s, uint8_t out[6]) {
@@ -105,12 +152,15 @@ void loadCfg() {
   cfg.pc_mac = macStr;
   cfg.pc_broadcast = PC_BROADCAST;
   cfg.hub_token = HUB_TOKEN;
+  cfg.ntp = NTP_SERVER;
+  cfg.usb_pins = USB_PINS;
 
   Preferences p;
   if (!p.begin(NVS_NS, true)) return;  // namespace absent: keep defaults
   for (const char *k : STR_KEYS)
     if (p.isKey(k)) *strField(k) = p.getString(k);
   if (p.isKey("broker_port")) cfg.broker_port = p.getInt("broker_port", MQTT_PORT);
+  if (p.isKey("usb_state")) usbState = p.getUChar("usb_state", 0xFF);
   p.end();
 }
 
@@ -166,11 +216,15 @@ void handleProvision(JsonVariantConst in) {
     const char *s = v.as<const char *>();
     uint8_t mac[6];
     IPAddress ip;
+    int pins[USB_MAX_CH];
     bool bad = strlen(s) > 128 || (!strcmp(k, "ssid") && strlen(s) > 32) ||
+               (!strcmp(k, "ntp") && (strlen(s) > 63 || strchr(s, ' '))) ||
+               (!strcmp(k, "usb_pins") && parseUsbPins(s, pins) < 0) ||
                (!strcmp(k, "pass") && strlen(s) > 63) ||
                (!strcmp(k, "pc_mac") && !parseMac(s, mac)) ||
                (!strcmp(k, "pc_broadcast") && !parseIPv4(s, ip)) ||
-               (!strcmp(k, "node_id") && strlen(s) == 0);
+               (!strcmp(k, "node_id") && strlen(s) == 0) ||
+               (!strcmp(k, "wake_token") && strlen(s) != 0 && strlen(s) < 16);
     if (bad) {
       snprintf(err, sizeof(err), "bad_value:%s", k);
       return replyErr(err);
@@ -264,6 +318,7 @@ String tCmd, tStatus, tHeartbeat;
 uint32_t lastBeat = 0, lastPulse = 0, lastMqttTry = 0, lastWifiTry = 0;
 
 bool timeSynced();
+char ntpHost[64] = "";  // configTime() keeps the pointer, so this must stay static
 
 void publishStatus(const char *state, const char *detail = "") {
   JsonDocument d;
@@ -273,7 +328,10 @@ void publishStatus(const char *state, const char *detail = "") {
   d["fw"] = FW_VERSION;
   d["protocol"] = PROTOCOL_VERSION;
   d["time_synced"] = timeSynced();
-  char buf[320];
+  d["ntp"] = ntpHost;
+  JsonArray usb = d["usb"].to<JsonArray>();
+  for (int i = 0; i < usbCount; i++) usb.add((usbState >> i) & 1 ? true : false);
+  char buf[400];
   size_t n = serializeJson(d, buf);
   mqtt.publish(tStatus.c_str(), (const uint8_t *)buf, n, true);
 }
@@ -377,6 +435,42 @@ const char *doPulse(JsonVariantConst d) {
   return "done";
 }
 
+void applyUsb(int ch) {
+  digitalWrite(usbPin[ch], (usbState >> ch) & 1 ? HIGH : LOW);  // HIGH = 5 V line on
+}
+
+// usb_power: {"action":"usb_power","channel":N,"on":true} switches a line on (unsigned).
+// Off needs the same HMAC as power_pulse, over "<id>|usb_power_off|<channel>|<ts>".
+const char *doUsb(JsonVariantConst d) {
+  static char detail[64];
+  int ch = d["channel"] | -1;
+  bool on = d["on"] | true;
+  const char *why = nullptr;
+  if (ch < 0 || ch >= usbCount) why = "rejected_bad_channel";
+  else if (!on)
+    why = verifySigned(d["id"] | (const char *)nullptr, "usb_power_off", ch, d["ts"] | (long long)0,
+                       d["sig"] | (const char *)nullptr);
+  if (why) {
+    snprintf(detail, sizeof(detail), "usb_power:%d:%s", ch, why);
+    publishStatus("online", detail);
+    return why;
+  }
+  bool was = (usbState >> ch) & 1;
+  if (on) usbState |= (1 << ch);
+  else usbState &= ~(1 << ch);
+  applyUsb(ch);
+  if (was != on) {  // persist only on change (NVS wear)
+    Preferences p;
+    if (p.begin(NVS_NS, false)) {
+      p.putUChar("usb_state", usbState);
+      p.end();
+    }
+  }
+  snprintf(detail, sizeof(detail), "usb_power:%d:%s", ch, on ? "on" : "off");
+  publishStatus("online", detail);
+  return "done";
+}
+
 void onMessage(char *topic, byte *payload, unsigned int len) {
   JsonDocument d;
   if (deserializeJson(d, payload, len)) return;
@@ -385,6 +479,8 @@ void onMessage(char *topic, byte *payload, unsigned int len) {
     doWake();
   } else if (strcmp(action, "power_pulse") == 0) {
     doPulse(d.as<JsonVariantConst>());
+  } else if (strcmp(action, "usb_power") == 0) {
+    doUsb(d.as<JsonVariantConst>());
   }
 }
 
@@ -406,11 +502,15 @@ void sendErr(int code, const char *err) {
   sendJson(code, d);
 }
 
+// /wake accepts the wake-only token (so a phone never needs the HMAC key) or hub_token.
 bool bearerOk() {
-  if (cfg.hub_token.length() == 0) return false;
   String h = http.header("Authorization");
   if (!h.startsWith("Bearer ")) return false;
-  return ctEqual(h.substring(7).c_str(), cfg.hub_token.c_str());
+  String t = h.substring(7);
+  bool ok = false;
+  if (cfg.wake_token.length() >= 16) ok |= ctEqual(t.c_str(), cfg.wake_token.c_str());
+  if (cfg.hub_token.length()) ok |= ctEqual(t.c_str(), cfg.hub_token.c_str());
+  return ok;
 }
 
 void httpHealth() {
@@ -421,12 +521,17 @@ void httpHealth() {
   d["protocol"] = PROTOCOL_VERSION;
   d["time_synced"] = timeSynced();
   d["mqtt"] = mqtt.connected();
+  d["ntp"] = ntpHost;
+  JsonArray usb = d["usb"].to<JsonArray>();
+  for (int i = 0; i < usbCount; i++) usb.add((usbState >> i) & 1 ? true : false);
   d["ip"] = WiFi.localIP().toString();
+  d["can_wake"] = cfg.hub_token.length() > 0 || cfg.wake_token.length() >= 16;
   sendJson(200, d);
 }
 
 void httpWake() {
-  if (cfg.hub_token.length() == 0) return sendErr(503, "no_hub_token");
+  if (cfg.hub_token.length() == 0 && cfg.wake_token.length() < 16)
+    return sendErr(503, "no_hub_token");
   if (!bearerOk()) return sendErr(401, "unauthorized");
   if (lastHttpWake != 0 && millis() - lastHttpWake < HTTP_WAKE_MIN_INTERVAL_MS)
     return sendErr(429, "rate_limited");
@@ -508,6 +613,11 @@ void setup() {
   Serial.begin(115200);
   bootMs = millis();
   loadCfg();
+  usbCount = max(0, parseUsbPins(cfg.usb_pins.c_str(), usbPin));
+  for (int i = 0; i < usbCount; i++) {  // restore persisted state (default: all on)
+    pinMode(usbPin[i], OUTPUT);
+    applyUsb(i);
+  }
   Serial.printf("pyra-claw fw %s node=%s provisioning=v1\n", FW_VERSION, cfg.node_id.c_str());
   String base = String("pyra/node/") + cfg.node_id;
   tCmd = base + "/cmd";
@@ -519,7 +629,10 @@ void setup() {
   } else {
     Serial.println("no ssid configured; waiting for serial provisioning");
   }
-  configTime(0, 0, "pool.ntp.org", "time.google.com", "time.cloudflare.com");  // UTC
+  // Hub first (works offline / LAN-only), then public pools. UTC.
+  strlcpy(ntpHost, (cfg.ntp.length() ? cfg.ntp : cfg.broker).c_str(), sizeof(ntpHost));
+  if (ntpHost[0]) configTime(0, 0, ntpHost, "pool.ntp.org", "time.google.com");
+  else configTime(0, 0, "pool.ntp.org", "time.google.com", "time.cloudflare.com");
   mqtt.setServer(cfg.broker.c_str(), (uint16_t)cfg.broker_port);
   mqtt.setSocketTimeout(2);
   mqtt.setCallback(onMessage);

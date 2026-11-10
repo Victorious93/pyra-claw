@@ -53,15 +53,17 @@ struct Cfg {
   String ssid, pass, broker, node_id, mqtt_user, mqtt_pass, pc_mac, pc_broadcast, hub_token;
   String ntp;       // NTP server tried first; empty = use `broker` (the Pi hub runs chrony)
   String usb_pins;  // comma-separated GPIOs, one per switched USB 5 V channel; empty = none
+  String wake_token;  // optional bearer for HTTP /wake only (phone direct mode); can't sign
   int broker_port;
 } cfg;
 
 static const char *STR_KEYS[] = {"ssid",      "pass",   "broker",       "node_id",   "mqtt_user",
                                  "mqtt_pass", "pc_mac", "pc_broadcast", "hub_token", "ntp",
-                                 "usb_pins"};
+                                 "usb_pins", "wake_token"};
 static const char *ALL_KEYS[] = {"ssid",         "pass",      "broker",    "broker_port",
                                  "node_id",      "mqtt_user", "mqtt_pass", "pc_mac",
-                                 "pc_broadcast", "hub_token", "ntp",       "usb_pins"};
+                                 "pc_broadcast", "hub_token", "ntp",       "usb_pins",
+                                 "wake_token"};
 
 // ---------- USB power channels (relay / high-side MOSFET per USB 5 V line) ----------
 // Only GPIOs that are not strapping (0,2,5,12,15), flash (6-11), UART0 (1,3),
@@ -106,11 +108,13 @@ String *strField(const char *k) {
   if (!strcmp(k, "hub_token")) return &cfg.hub_token;
   if (!strcmp(k, "ntp")) return &cfg.ntp;
   if (!strcmp(k, "usb_pins")) return &cfg.usb_pins;
+  if (!strcmp(k, "wake_token")) return &cfg.wake_token;
   return nullptr;
 }
 
 bool isSecret(const char *k) {
-  return !strcmp(k, "pass") || !strcmp(k, "mqtt_pass") || !strcmp(k, "hub_token");
+  return !strcmp(k, "pass") || !strcmp(k, "mqtt_pass") || !strcmp(k, "hub_token") ||
+         !strcmp(k, "wake_token");
 }
 
 bool parseMac(const char *s, uint8_t out[6]) {
@@ -219,7 +223,8 @@ void handleProvision(JsonVariantConst in) {
                (!strcmp(k, "pass") && strlen(s) > 63) ||
                (!strcmp(k, "pc_mac") && !parseMac(s, mac)) ||
                (!strcmp(k, "pc_broadcast") && !parseIPv4(s, ip)) ||
-               (!strcmp(k, "node_id") && strlen(s) == 0);
+               (!strcmp(k, "node_id") && strlen(s) == 0) ||
+               (!strcmp(k, "wake_token") && strlen(s) != 0 && strlen(s) < 16);
     if (bad) {
       snprintf(err, sizeof(err), "bad_value:%s", k);
       return replyErr(err);
@@ -497,11 +502,15 @@ void sendErr(int code, const char *err) {
   sendJson(code, d);
 }
 
+// /wake accepts the wake-only token (so a phone never needs the HMAC key) or hub_token.
 bool bearerOk() {
-  if (cfg.hub_token.length() == 0) return false;
   String h = http.header("Authorization");
   if (!h.startsWith("Bearer ")) return false;
-  return ctEqual(h.substring(7).c_str(), cfg.hub_token.c_str());
+  String t = h.substring(7);
+  bool ok = false;
+  if (cfg.wake_token.length() >= 16) ok |= ctEqual(t.c_str(), cfg.wake_token.c_str());
+  if (cfg.hub_token.length()) ok |= ctEqual(t.c_str(), cfg.hub_token.c_str());
+  return ok;
 }
 
 void httpHealth() {
@@ -516,11 +525,13 @@ void httpHealth() {
   JsonArray usb = d["usb"].to<JsonArray>();
   for (int i = 0; i < usbCount; i++) usb.add((usbState >> i) & 1 ? true : false);
   d["ip"] = WiFi.localIP().toString();
+  d["can_wake"] = cfg.hub_token.length() > 0 || cfg.wake_token.length() >= 16;
   sendJson(200, d);
 }
 
 void httpWake() {
-  if (cfg.hub_token.length() == 0) return sendErr(503, "no_hub_token");
+  if (cfg.hub_token.length() == 0 && cfg.wake_token.length() < 16)
+    return sendErr(503, "no_hub_token");
   if (!bearerOk()) return sendErr(401, "unauthorized");
   if (lastHttpWake != 0 && millis() - lastHttpWake < HTTP_WAKE_MIN_INTERVAL_MS)
     return sendErr(429, "rate_limited");

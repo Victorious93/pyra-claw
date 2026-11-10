@@ -55,6 +55,8 @@ def parse_kv(pairs: list[str]) -> dict:
         k, v = p.split("=", 1)
         cfg[k] = int(v) if k in INT_KEYS else v
     err = check_usb_pins(cfg["usb_pins"]) if "usb_pins" in cfg else None
+    if "wake_token" in cfg and 0 < len(cfg["wake_token"]) < 16:
+        err = "wake_token: at least 16 characters (or empty to disable)"
     if "ntp" in cfg and (len(cfg["ntp"]) > 63 or " " in cfg["ntp"]):
         err = "ntp: host or IP, max 63 chars, no spaces"
     if err:

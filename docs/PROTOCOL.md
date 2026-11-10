@@ -18,6 +18,7 @@
   - State is saved in NVS (`fleet/usb_state`) on every change and restored at boot. **Default is on** for a fresh node or a channel never switched off. During reset/flash the GPIO floats; the 10 kΩ pull-down on the driver transistor holds the line **off** for that moment (wiring: MANUAL.md §4.1).
 - Hub `esp32_relay` results now include `signed`, `id`, `channel`; `device.power_off` returns `"power":"usb_cut"`. A phone with a battery keeps running when its USB 5 V is cut; this only stops charging.
 - No HTTP `usb_power` route on the node yet (MQTT only).
+- **`wake_token`** (new optional NVS key, ≥ 16 chars): HTTP `POST /wake` accepts `Authorization: Bearer <wake_token>` **or** `<hub_token>`. The wake token can't sign anything, so the phone app's Direct ESP32 mode never needs the HMAC key. `/health` gains `can_wake`. `install.sh` generates `NODE_WAKE_TOKEN`.
 
 ## Changes in v0.3 (Timer tab, backward compatible)
 - `protocol` is now `"0.3"`. Nothing that existed in v0.2 changed: `pc.wake` with `"target": null` (VictorSuite) and the `pc.power_pulse` approval flow work exactly as before.
@@ -129,8 +130,8 @@ Port 80 on the node; optional mDNS name `pyra-<node_id>.local`. Works without th
 
 | Endpoint | Auth | Effect |
 |---|---|---|
-| `GET /health` | none | `{ok, node_id, fw, protocol, time_synced, mqtt, ip, ntp, usb}` |
-| `POST /wake` | `Authorization: Bearer <hub_token>` | sends WOL to `pc_mac`/`pc_broadcast`. 1 per 10 s, else **429**. 401 bad token, 503 no token provisioned |
+| `GET /health` | none | `{ok, node_id, fw, protocol, time_synced, mqtt, ip, ntp, usb, can_wake}` |
+| `POST /wake` | `Authorization: Bearer <wake_token>` (v0.4) or `<hub_token>` | sends WOL to `pc_mac`/`pc_broadcast`. 1 per 10 s, else **429**. 401 bad token, 503 no token provisioned |
 | `POST /pulse` | signed JSON body (above) | power pulse; never accepted unsigned. Codes per table above, 200 on success |
 
 ```

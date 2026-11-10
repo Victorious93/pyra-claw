@@ -12,6 +12,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.victorious.pyraclaw.data.Approval
+import com.victorious.pyraclaw.data.DirectHealthDto
 import com.victorious.pyraclaw.data.FoundHub
 import com.victorious.pyraclaw.data.HubError
 import com.victorious.pyraclaw.data.HubSettings
@@ -28,9 +29,12 @@ import com.victorious.pyraclaw.ui.approval.ApprovalSheetContent
 import com.victorious.pyraclaw.ui.approval.ApprovalUi
 import com.victorious.pyraclaw.ui.components.Load
 import com.victorious.pyraclaw.ui.components.LocalNow
+import com.victorious.pyraclaw.ui.dashboard.ControlMode
 import com.victorious.pyraclaw.ui.dashboard.DashboardScreen
+import com.victorious.pyraclaw.ui.dashboard.DirectInfo
 import com.victorious.pyraclaw.ui.dashboard.DashboardUi
 import com.victorious.pyraclaw.ui.dashboard.WakeState
+import com.victorious.pyraclaw.ui.dashboard.WakeVia
 import com.victorious.pyraclaw.ui.devices.DeviceResult
 import com.victorious.pyraclaw.ui.devices.DevicesScreen
 import com.victorious.pyraclaw.ui.devices.DevicesUi
@@ -39,6 +43,7 @@ import com.victorious.pyraclaw.ui.onboarding.OnboardingScreen
 import com.victorious.pyraclaw.ui.onboarding.OnboardingUi
 import com.victorious.pyraclaw.ui.onboarding.TestState
 import com.victorious.pyraclaw.ui.settings.DeviceFacts
+import com.victorious.pyraclaw.ui.settings.DirectTest
 import com.victorious.pyraclaw.ui.settings.SettingsScreen
 import com.victorious.pyraclaw.ui.settings.SettingsUi
 import com.victorious.pyraclaw.ui.theme.Neon
@@ -152,4 +157,38 @@ class ScreenshotTest {
     }
 
     @Test fun s10_help() = shot("10-help", Tab.Help) { HelpScreen(initiallyExpanded = setOf("approvals")) }
+
+    @Test fun s11_dashboard_direct() = shot("11-dashboard-direct-esp32", Tab.Dashboard) {
+        DashboardScreen(
+            DashboardUi(
+                link = LinkState.Retrying("failed to connect", now + 8_000),
+                restError = HubError.Unreachable("failed to connect to /192.168.1.20:8787"),
+                mode = ControlMode.DirectEsp32,
+                direct = DirectInfo(
+                    "http://pyra-esp32-wake-01.local/",
+                    DirectHealthDto(true, "esp32-wake-01", "0.4.0", "0.4", true, false, "192.168.1.42", true),
+                ),
+                wake = WakeState.Sent(102, false, now - 6_000, WakeVia.DirectEsp32),
+            ),
+            now, {}, {}, {}, {}, {}, {},
+        )
+    }
+
+    @Test fun s12_settings_direct() = shot("12-settings-direct-esp32", Tab.Settings) {
+        Box(Modifier.fillMaxSize()) {
+            SettingsScreen(
+                SettingsUi(
+                    HubSettings(
+                        "http://192.168.1.20:8787/", "x", paired = true, backgroundLink = true,
+                        directUrl = "http://pyra-esp32-wake-01.local/", directToken = "wake-only-token-0123456789",
+                    ),
+                    ServiceState(running = true, connected = false, fgsType = "connectedDevice"),
+                    LiveSnapshot(LinkState.Retrying("failed to connect", now + 8_000), null),
+                    directTest = DirectTest.Ok(DirectHealthDto(true, "esp32-wake-01", "0.4.0", "0.4", true, false, "192.168.1.42", true)),
+                ),
+                DeviceFacts(batteryExempt = true, notificationsAllowed = true), now, {}, {}, {}, {}, {}, {},
+                scrollToDirect = true,
+            )
+        }
+    }
 }

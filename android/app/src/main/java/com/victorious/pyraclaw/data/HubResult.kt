@@ -66,6 +66,31 @@ sealed class HubError(val title: String, val hint: String, open val detail: Stri
         detail,
     )
 
+    // ---- Direct ESP32 mode (no Pi) ---------------------------------------------------------
+    data object DirectNotConfigured : HubError(
+        "Direct ESP32 not set up", "Settings > Direct ESP32: enter the node address and its wake_token.",
+    )
+    data class Esp32Unreachable(override val detail: String?) : HubError(
+        "Can't reach the hub or the ESP32",
+        "Check the ESP32 is powered and on the same Wi-Fi, and its address (pyra-<node_id>.local or IP).",
+        detail,
+    )
+    data class Esp32Refused(val code: Int, override val detail: String?) : HubError(
+        when (code) {
+            401 -> "ESP32 rejected the token (401)"
+            429 -> "ESP32 rate limit (429)"
+            503 -> "ESP32 has no token provisioned (503)"
+            else -> "ESP32 error ($code)"
+        },
+        when (code) {
+            401 -> "Use the node's wake_token (NODE_WAKE_TOKEN in /etc/pyra-claw/node-credentials)."
+            429 -> "The ESP32 allows one wake every 10 s. Wait and try again."
+            503 -> "Provision wake_token (or hub_token) on the ESP32 over USB serial."
+            else -> "See docs/PROTOCOL.md, ESP32 standalone HTTP API."
+        },
+        detail,
+    )
+
     /** One line for snackbars. */
     val message: String get() = detail?.takeIf { it.isNotBlank() }?.let { "$title: $it" } ?: title
 }

@@ -37,6 +37,18 @@ object HelpContent {
             ),
         ),
         HelpSection(
+            "direct", "Direct ESP32 mode (no Pi)", "Wake the PC when the hub is down",
+            listOf(
+                "What it is: a fallback. If the hub can't be reached (Pi off, wrong network, crashed), WAKE PC goes straight to the ESP32 wake node's own web API (POST /wake on port 80) instead. The ESP32 then sends the Wake-on-LAN packet itself.",
+                "Set it up: Settings > Direct ESP32. Enter the node's address, pyra-<node_id>.local (for example pyra-esp32-wake-01.local) or its IP, and its wake_token, then press Save & test. The token is stored encrypted with an Android Keystore key, like the hub token.",
+                "Which token: NODE_WAKE_TOKEN from /etc/pyra-claw/node-credentials on the Pi, provisioned into the ESP32 as wake_token (firmware 0.4+, at least 16 characters). It can only wake the PC. Do not paste hub_token: that is the key that signs power-button presses and USB power-off.",
+                "How you know which mode you're in: the Wake card shows VIA HUB (cyan) or DIRECT · ESP32 (magenta), and a magenta DIRECT ESP32 MODE banner appears with the node's health (online, firmware, NTP). The app switches by itself: it tries the hub first, and if the hub is unreachable or times out it uses the ESP32. Once the hub is known to be down, Wake goes direct right away.",
+                "Limits: the ESP32 allows one wake every 10 s (429). It can't confirm the PC booted. Mobile data won't work: the phone must be on the same network as the ESP32. Plain HTTP, so the token crosses your LAN unencrypted; use a trusted network.",
+                "Why the power button stays hub-only: the ESP32's /pulse only accepts commands signed with hub_token. Signing on the phone would mean storing that key on the phone and skipping the hub's 30 s approval and audit log; if the phone were lost or its backup leaked, someone could hold the PC's power button. Waking a PC is harmless, a forced power-off is not, so only wake gets a direct path.",
+                "Status: untested on hardware [Certain]. Needs ESP32 firmware 0.4+ for wake_token; older firmware only accepts hub_token on /wake, which this app deliberately doesn't ask for.",
+            ),
+        ),
+        HelpSection(
             "approvals", "Approvals (power button, power off)", "Hold, approve, send within 30 s",
             listOf(
                 "Some commands can hurt a running machine: pressing the PC power button (pc.power_pulse) and powering a device off (device.power_off). They always need a fresh approval.",

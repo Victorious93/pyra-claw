@@ -95,7 +95,7 @@ Hub → node frame: `{"action":"power_pulse","id":"r1","ms":300,"ts":…,"sig":"
 curl http://pyra-esp32-wake-01.local/health
 curl -X POST -H "Authorization: Bearer $HUB_TOKEN" http://pyra-esp32-wake-01.local/wake
 ```
-`/pulse` needs a signed body (generate with `hub/src/pyra_hub/signing.py`) and NTP. Plain HTTP — trusted LAN only. The **Android app does not call these endpoints yet** [Certain]. **Status: 🟡 Needs hardware.**
+`/pulse` needs a signed body (generate with `hub/src/pyra_hub/signing.py`) and NTP. Plain HTTP — trusted LAN only. Since app 0.5, **Wake PC falls back to `POST /wake`** on the node when the hub is unreachable (Settings > Direct ESP32, needs the node's `wake_token`, firmware 0.4+); the power button stays hub-only [Certain, from code]. **Status: 🟡 Needs hardware.**
 
 ## 7. Coral presence detection wakes the PC
 ![](img/illus_coral.jpg)

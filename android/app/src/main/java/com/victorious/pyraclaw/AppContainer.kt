@@ -1,7 +1,9 @@
 package com.victorious.pyraclaw
 
 import android.content.Context
+import com.victorious.pyraclaw.data.DefaultDirectEsp32
 import com.victorious.pyraclaw.data.DefaultHubRepository
+import com.victorious.pyraclaw.data.DirectEsp32
 import com.victorious.pyraclaw.data.HubDiscovery
 import com.victorious.pyraclaw.data.HubRepository
 import com.victorious.pyraclaw.data.LiveHub
@@ -27,4 +29,5 @@ class AppContainer(context: Context) {
     val repository: HubRepository = DefaultHubRepository(settings, http)
     val live = LiveHub(settings, http.newBuilder().callTimeout(0, TimeUnit.SECONDS).readTimeout(0, TimeUnit.SECONDS).build(), appScope)
     val discovery = HubDiscovery(context, http)
+    val direct: DirectEsp32 = DefaultDirectEsp32(http)
 }

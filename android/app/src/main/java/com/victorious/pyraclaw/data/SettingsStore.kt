@@ -21,8 +21,13 @@ data class HubSettings(
     val token: String = "",
     val paired: Boolean = false,
     val backgroundLink: Boolean = false,
+    /** Optional ESP32 node for Direct mode (no Pi), e.g. "http://pyra-esp32-wake-01.local/". */
+    val directUrl: String = "",
+    /** The node's wake_token (can wake the PC, can't sign pulses). Keystore-encrypted at rest. */
+    val directToken: String = "",
 ) {
     val isConfigured get() = paired && token.isNotBlank() && hubUrl.isNotBlank()
+    val hasDirect get() = directUrl.isNotBlank() && directToken.isNotBlank()
 }
 
 interface SettingsStore {
@@ -30,6 +35,8 @@ interface SettingsStore {
     fun current(): HubSettings = settings.value
     fun savePairing(url: String, token: String)
     fun setBackgroundLink(enabled: Boolean)
+    fun saveDirect(url: String, token: String)
+    fun clearDirect()
     fun forget()
 }
 
@@ -40,6 +47,8 @@ class InMemorySettingsStore(initial: HubSettings = HubSettings()) : SettingsStor
     override fun savePairing(url: String, token: String) =
         state.update { it.copy(hubUrl = url, token = token, paired = true) }
     override fun setBackgroundLink(enabled: Boolean) = state.update { it.copy(backgroundLink = enabled) }
+    override fun saveDirect(url: String, token: String) = state.update { it.copy(directUrl = url, directToken = token) }
+    override fun clearDirect() = state.update { it.copy(directUrl = "", directToken = "") }
     override fun forget() = state.update { HubSettings() }
 }
 
@@ -60,6 +69,8 @@ class SecureSettingsStore(context: Context) : SettingsStore {
             token = token,
             paired = prefs.getBoolean(K_PAIRED, false) && token.isNotBlank(),
             backgroundLink = prefs.getBoolean(K_BG, false),
+            directUrl = prefs.getString(K_DIRECT_URL, null) ?: "",
+            directToken = prefs.getString(K_DIRECT_TOKEN, null)?.let { decrypt(it) } ?: "",
         )
     }
 
@@ -86,6 +97,17 @@ class SecureSettingsStore(context: Context) : SettingsStore {
     override fun setBackgroundLink(enabled: Boolean) {
         prefs.edit().putBoolean(K_BG, enabled).apply()
         state.update { it.copy(backgroundLink = enabled) }
+    }
+
+    override fun saveDirect(url: String, token: String) {
+        val enc = encrypt(token) ?: error("Android Keystore unavailable; token not saved")
+        prefs.edit().putString(K_DIRECT_URL, url).putString(K_DIRECT_TOKEN, enc).apply()
+        state.update { it.copy(directUrl = url, directToken = token) }
+    }
+
+    override fun clearDirect() {
+        prefs.edit().remove(K_DIRECT_URL).remove(K_DIRECT_TOKEN).apply()
+        state.update { it.copy(directUrl = "", directToken = "") }
     }
 
     override fun forget() {
@@ -132,5 +154,7 @@ class SecureSettingsStore(context: Context) : SettingsStore {
         const val K_TOKEN = "hub_token_enc"
         const val K_PAIRED = "paired"
         const val K_BG = "background_link"
+        const val K_DIRECT_URL = "direct_url"
+        const val K_DIRECT_TOKEN = "direct_token_enc"
     }
 }

@@ -15,10 +15,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatterySaver
 import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.SettingsEthernet
@@ -26,22 +32,31 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.victorious.pyraclaw.BuildConfig
@@ -73,10 +88,17 @@ fun SettingsScreen(
     onBackgroundLink: (Boolean) -> Unit,
     onBatteryExemption: () -> Unit,
     onNotifications: () -> Unit,
+    onSaveDirect: (url: String, token: String) -> Unit = { _, _ -> },
+    onTestDirect: () -> Unit = {},
+    onClearDirect: () -> Unit = {},
+    /** Start scrolled down to the Direct ESP32 card (screenshots / deep link). */
+    scrollToDirect: Boolean = false,
 ) {
     var confirmForget by remember { mutableStateOf(false) }
+    val scroll = rememberScrollState()
+    if (scrollToDirect) LaunchedEffect(Unit) { scroll.scrollTo(DIRECT_SCROLL_PX) }
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier.fillMaxSize().verticalScroll(scroll).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
@@ -113,6 +135,9 @@ fun SettingsScreen(
             }
             TextButton(onClick = { confirmForget = true }) { Text("Forget this hub", color = Neon.Red) }
         }
+
+        SectionHeader("Direct ESP32 (no Pi)")
+        DirectCard(ui, onSaveDirect, onTestDirect, onClearDirect)
 
         SectionHeader("Background link")
         NeonCard {
@@ -208,6 +233,82 @@ fun SettingsScreen(
             confirmButton = { TextButton(onClick = { confirmForget = false; onForget() }) { Text("Forget", color = Neon.Red) } },
             dismissButton = { TextButton(onClick = { confirmForget = false }) { Text("Cancel") } },
         )
+    }
+}
+
+private const val DIRECT_SCROLL_PX = 700
+
+@Composable
+private fun DirectCard(
+    ui: SettingsUi,
+    onSave: (String, String) -> Unit,
+    onTest: () -> Unit,
+    onClear: () -> Unit,
+) {
+    val saved = ui.settings
+    var url by rememberSaveable(saved.directUrl) { mutableStateOf(saved.directUrl.removePrefix("http://").trimEnd('/')) }
+    var token by rememberSaveable(saved.directUrl) { mutableStateOf("") }
+    var show by remember { mutableStateOf(false) }
+    NeonCard(accent = Neon.Magenta.copy(alpha = 0.45f)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.Memory, null, tint = Neon.Magenta)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Fallback when the hub is unreachable", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Wake PC goes straight to the ESP32's own web API. Power button, devices and timers stay hub-only.",
+                    style = MaterialTheme.typography.bodySmall, color = Neon.TextDim,
+                )
+            }
+        }
+        if (saved.hasDirect) {
+            KeyValue("Node", saved.directUrl.removePrefix("http://").trimEnd('/'), mono = true)
+            KeyValue("Wake token", "Saved · Keystore-encrypted")
+        }
+        OutlinedTextField(
+            value = url, onValueChange = { url = it }, modifier = Modifier.fillMaxWidth().testTag("directUrl"),
+            label = { Text("ESP32 address") }, placeholder = { Text("pyra-esp32-wake-01.local") },
+            leadingIcon = { Icon(Icons.Filled.Link, null) }, singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
+        )
+        OutlinedTextField(
+            value = token, onValueChange = { token = it }, modifier = Modifier.fillMaxWidth().testTag("directToken"),
+            label = { Text(if (saved.hasDirect) "New wake_token (blank = keep)" else "wake_token") },
+            leadingIcon = { Icon(Icons.Filled.Key, null) }, singleLine = true,
+            visualTransformation = if (show) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = {
+                IconButton(onClick = { show = !show }) {
+                    Icon(if (show) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, if (show) "Hide token" else "Show token")
+                }
+            },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+        )
+        Text(
+            "Use NODE_WAKE_TOKEN from /etc/pyra-claw/node-credentials (firmware 0.4+). It can only wake the PC. Never paste hub_token here: that key can sign power-button presses.",
+            style = MaterialTheme.typography.bodySmall, color = Neon.Amber,
+        )
+        when (val t = ui.directTest) {
+            DirectTest.Testing -> Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp); Spacer(Modifier.width(8.dp)); Text("Asking the ESP32…", color = Neon.TextDim)
+            }
+            is DirectTest.Ok -> Text(
+                "✓ ${t.health.node_id ?: "ESP32"} answered · fw ${t.health.fw ?: "?"} · " +
+                    (if (t.health.time_synced == true) "time synced" else "no NTP yet") +
+                    (if (t.health.can_wake == false) " · no wake token provisioned on the node" else ""),
+                color = if (t.health.can_wake == false) Neon.Amber else Neon.Green, style = MaterialTheme.typography.bodySmall,
+            )
+            is DirectTest.Failed -> Text("${t.error.title}. ${t.error.hint}", color = Neon.Red, style = MaterialTheme.typography.bodySmall)
+            is DirectTest.Invalid -> Text(t.message, color = Neon.Red, style = MaterialTheme.typography.bodySmall)
+            DirectTest.Idle -> {}
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilledTonalButton(
+                onClick = { onSave(url, token.ifBlank { saved.directToken }) }, modifier = Modifier.weight(1f).testTag("directSave"),
+                colors = androidx.compose.material3.ButtonDefaults.filledTonalButtonColors(containerColor = Neon.Magenta.copy(alpha = 0.16f), contentColor = Neon.Magenta),
+            ) { Text("Save & test") }
+            OutlinedButton(onClick = onTest, enabled = saved.hasDirect, modifier = Modifier.weight(1f)) { Text("Test") }
+        }
+        if (saved.hasDirect) TextButton(onClick = onClear) { Text("Remove direct ESP32", color = Neon.Red) }
     }
 }
 

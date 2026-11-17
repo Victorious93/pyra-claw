@@ -51,3 +51,14 @@ hub_token = "CHANGE_ME_NODE"
 # [devices.phone3]
 # label = "Nexus rack slot 3"
 # charge = { backend = "adb", serial = "SERIAL3", profile = "nexus6" }
+
+# ---- v0.5: signed OTA firmware updates for ESP32 nodes (UNTESTED ON HARDWARE) ------
+# Put <image>.bin + <image>.json (from tools/ota_sign.py) in firmware_dir. Starting an
+# update is approval-gated: POST /api/approve/node.ota, then the node.ota command.
+[ota]
+firmware_dir = "/var/lib/pyra-claw/firmware"
+# URL the ESP32 uses to reach this hub (empty = OTA disabled). Example:
+# base_url = "http://192.168.1.20:8787"
+base_url = ""
+# Optional: OTA *public* key (PEM). When set, the hub refuses images that don't verify.
+# public_key = "/etc/pyra-claw/ota_pub.pem"

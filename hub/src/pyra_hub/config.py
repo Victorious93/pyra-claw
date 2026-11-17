@@ -7,6 +7,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .ota import OtaConfig
 from .power import DeviceConfig
 
 
@@ -45,6 +46,8 @@ class HubConfig:
     # v0.3: timers file (JSON) and downstream devices for charge / power control
     timers_file: str = ""  # empty = in-memory only (timers lost on restart)
     devices: dict[str, DeviceConfig] = field(default_factory=dict)
+    # v0.5: signed OTA firmware images for ESP32 nodes
+    ota: OtaConfig = field(default_factory=OtaConfig)
 
 
 def load_config(path: str | os.PathLike[str] | None = None) -> HubConfig:
@@ -63,4 +66,5 @@ def load_config(path: str | os.PathLike[str] | None = None) -> HubConfig:
         mqtt=MqttConfig(**data.get("mqtt", {})),
         pc=PcConfig(**data.get("pc", {})),
         node=NodeConfig(**data.get("node", {})),
+        ota=OtaConfig(**data.get("ota", {})),
     )

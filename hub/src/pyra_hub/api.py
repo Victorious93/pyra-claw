@@ -7,6 +7,7 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 
 from . import __version__
 from .auth import make_dependency, token_matches
@@ -15,11 +16,13 @@ from .envelope import (
     APPROVAL_REQUIRED,
     DEVICE_COMMANDS,
     KNOWN_COMMANDS,
+    TIMER_FORBIDDEN,
     RemoteCommand,
     parse_envelope,
     unwrap,
 )
 from .mqtt_bridge import MqttBridge
+from .ota import FirmwareStore, OtaError, signed_ota_cmd
 from .power import BackendError, PowerController, Runner, default_runner
 from .queue import ApprovalError, ApprovalGate, AuditLog, CommandQueue
 from .registry import Registry
@@ -28,7 +31,7 @@ from .timers import Scheduler, Step, Timer, TimerIn, TimerStore
 from .wol import send_wol
 
 POWER_PULSE_MAX_MS = 300
-PROTOCOL_VERSION = "0.4"
+PROTOCOL_VERSION = "0.5"
 TIMER_ARM = "timer.arm"
 
 
@@ -58,6 +61,8 @@ def create_app(
         cfg.devices, publish=publish, runner=runner, hub_token=cfg.node.hub_token
     )
     store = TimerStore(cfg.timers_file or None)
+    firmware = FirmwareStore(cfg.ota)
+    app.state.firmware = firmware
     app.state.registry, app.state.gate, app.state.audit = registry, gate, audit
     app.state.power, app.state.store = power, store
 
@@ -88,6 +93,8 @@ def create_app(
             payload = signed_pulse(cfg.node.hub_token, cmd.id, ms)
             relayed = bool(bridge) and bridge.publish_cmd(cmd.target or cfg.pc.wake_node, payload)
             return {"ms": ms, "relayed": relayed, "signed": True}
+        if cmd.command == "node.ota":
+            return start_ota(cmd)
         if cmd.command in DEVICE_COMMANDS:
             try:
                 if cmd.command == "charge.on":
@@ -100,6 +107,41 @@ def create_app(
             except BackendError as e:
                 raise HTTPException(502, str(e)) from e
         raise HTTPException(400, "unsupported")
+
+    def hub_token_ok() -> bool:
+        return bool(cfg.node.hub_token) and not cfg.node.hub_token.startswith("CHANGE_ME")
+
+    def start_ota(cmd) -> dict:
+        node = cmd.target or cfg.pc.wake_node
+        image = cmd.args.get("image")
+        if not isinstance(image, str) or not image:
+            raise HTTPException(422, "node.ota needs args.image (see GET /api/ota)")
+        if not cfg.ota.base_url:
+            raise HTTPException(503, "ota.base_url not configured; nodes can't download images")
+        if not hub_token_ok():
+            raise HTTPException(503, "node.hub_token not configured; cannot sign the OTA command")
+        try:
+            info = firmware.get(image)
+        except OtaError as e:
+            raise HTTPException(e.status, str(e)) from e
+        known = {n["id"]: n for n in registry.list()}
+        current = (known.get(node) or {}).get("status", {}).get("fw_code")
+        if isinstance(current, int) and current >= info["version_code"]:
+            raise HTTPException(
+                409, f"anti-rollback: {node} runs fw_code {current} >= {info['version_code']}"
+            )
+        url = firmware.download_url(image, firmware.issue_download(image))
+        payload = signed_ota_cmd(cfg.node.hub_token, cmd.id, info, url)
+        relayed = bool(bridge) and bridge.publish_cmd(node, payload)
+        audit.write(
+            "ota_started",
+            id=cmd.id,
+            node=node,
+            image=image,
+            version=info["version"],
+            relayed=relayed,
+        )
+        return {"node": node, "image": image, "version": info["version"], "relayed": relayed}
 
     # ---- timers ----------------------------------------------------------------------
     def run_step(t: Timer, i: int, step: Step) -> dict:
@@ -142,6 +184,8 @@ def create_app(
         for i, st in enumerate(steps):
             if st.command not in KNOWN_COMMANDS:
                 raise HTTPException(422, f"step {i}: unknown command {st.command}")
+            if st.command in TIMER_FORBIDDEN:
+                raise HTTPException(422, f"step {i}: {st.command} can't run from a timer")
             if st.command in DEVICE_COMMANDS and st.target not in cfg.devices:
                 raise HTTPException(422, f"step {i}: unknown device {st.target!r}")
 
@@ -273,6 +317,47 @@ def create_app(
     @app.get("/api/audit", dependencies=[auth])
     def api_audit() -> dict:
         return {"events": list(audit.recent)}
+
+    # ---- OTA (v0.5) --------------------------------------------------------------------
+    @app.get("/api/ota", dependencies=[auth])
+    def api_ota() -> dict:
+        nodes = [
+            {
+                "id": n["id"],
+                "online": n["online"],
+                "fw": n["status"].get("fw"),
+                "fw_code": n["status"].get("fw_code"),
+                "ota": n["status"].get("ota"),
+                "detail": n["status"].get("detail"),
+            }
+            for n in registry.list()
+        ]
+        return {
+            "enabled": bool(cfg.ota.base_url) and hub_token_ok(),
+            "hub_verifies": bool(cfg.ota.public_key) and not firmware.key_error,
+            "key_error": firmware.key_error,
+            "images": firmware.list(),
+            "nodes": nodes,
+            "start": "POST /api/approve/node.ota, then POST /api/command "
+            '{"type":"remote.command","command":"node.ota","target":"<node>",'
+            '"args":{"image":"<image>"},"approval_token":"<token>"}',
+        }
+
+    @app.get("/ota/files/{filename}")
+    def ota_file(filename: str, t: str | None = None):
+        # No bearer auth (the ESP32 doesn't hold the app token): a short-lived download
+        # token from the signed MQTT command instead. Images are public-safe (no secrets;
+        # Wi-Fi/MQTT/HMAC keys live in NVS) and the node verifies the ECDSA signature.
+        if not filename.endswith(".bin"):
+            raise HTTPException(404, "not found")
+        name = filename[: -len(".bin")]
+        try:
+            firmware.get(name)
+            path = firmware.resolve_download(name, t)
+        except OtaError as e:
+            raise HTTPException(e.status, str(e)) from e
+        audit.write("ota_download", image=name)
+        return FileResponse(path, media_type="application/octet-stream")
 
     @app.post("/api/approve/{command}", dependencies=[auth])
     def api_approve(command: str) -> dict:

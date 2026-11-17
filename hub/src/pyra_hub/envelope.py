@@ -18,9 +18,13 @@ KNOWN_COMMANDS = {
     "charge.off",
     "device.power_on",
     "device.power_off",
+    # v0.5: signed OTA firmware update of an ESP32 node (target = node id)
+    "node.ota",
 }
 # Destructive hardware actions sit behind approval gates (fleet rule).
-APPROVAL_REQUIRED = {"pc.power_pulse", "device.power_off"}
+APPROVAL_REQUIRED = {"pc.power_pulse", "device.power_off", "node.ota"}
+# Never allowed as an unattended timer step, even pre-approved.
+TIMER_FORBIDDEN = {"node.ota"}
 DEVICE_COMMANDS = {"charge.on", "charge.off", "device.power_on", "device.power_off"}
 
 

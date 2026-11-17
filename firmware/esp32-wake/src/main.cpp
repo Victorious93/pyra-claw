@@ -2,6 +2,7 @@
 // CONCEPT / UNTESTED: verify wiring before connecting to a real PC.
 // USB serial provisioning contract v1: see docs/PROVISIONING.md.
 // Protocol v0.4: hub-first NTP (`ntp` key) and per-channel `usb_power` switching.
+// Protocol v0.5: signed OTA updates (ECDSA P-256 image signature + HMAC command), rollback.
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <ESPmDNS.h>
@@ -13,15 +14,14 @@
 #include <mbedtls/md.h>
 #include <time.h>
 
+#include "ota_update.h"
+
 #if __has_include("config.h")
 #include "config.h"
 #else
 #include "config.example.h"
 #endif
 
-#ifndef FW_VERSION
-#define FW_VERSION "0.4.0"
-#endif
 #ifndef HUB_TOKEN
 #define HUB_TOKEN ""
 #endif
@@ -39,7 +39,9 @@
 static const uint32_t PULSE_MAX_MS = 300;
 static const uint32_t PULSE_COOLDOWN_MS = 5000;
 static const uint32_t PROV_WINDOW_MS = 10000;
-static const char *PROTOCOL_VERSION = "0.4";
+static const char *PROTOCOL_VERSION = "0.5";
+// New OTA image must be healthy (Wi-Fi + HTTP + MQTT if a broker is set) within this.
+static const uint32_t OTA_HEALTH_DEADLINE_MS = 120000;
 static const long SIG_MAX_SKEW_S = 30;          // |node clock - ts| must be <= 30 s
 static const time_t TIME_VALID_AFTER = 1700000000;  // clock before this = no NTP sync yet
 static const uint32_t HTTP_WAKE_MIN_INTERVAL_MS = 10000;
@@ -326,13 +328,15 @@ void publishStatus(const char *state, const char *detail = "") {
   d["detail"] = detail;
   d["ip"] = WiFi.localIP().toString();
   d["fw"] = FW_VERSION;
+  d["fw_code"] = FW_VERSION_CODE;
+  d["ota"] = otaState();
   d["protocol"] = PROTOCOL_VERSION;
   d["time_synced"] = timeSynced();
   d["ntp"] = ntpHost;
   JsonArray usb = d["usb"].to<JsonArray>();
   for (int i = 0; i < usbCount; i++) usb.add((usbState >> i) & 1 ? true : false);
-  char buf[400];
-  size_t n = serializeJson(d, buf);
+  char buf[512];
+  size_t n = serializeJson(d, buf, sizeof(buf));
   mqtt.publish(tStatus.c_str(), (const uint8_t *)buf, n, true);
 }
 
@@ -471,6 +475,47 @@ const char *doUsb(JsonVariantConst d) {
   return "done";
 }
 
+// ota: {"action":"ota","id","url","project","version","version_code","size","sha256",
+//       "img_sig","ts","sig"}; sig = HMAC over "<id>|ota|<version_code>|<ts>" (hub_token).
+void otaProgress(int pct) {
+  char d[32];
+  snprintf(d, sizeof(d), "ota:downloading:%d", pct);
+  publishStatus("online", d);
+  mqtt.loop();
+}
+
+const char *doOta(JsonVariantConst d) {
+  static char detail[64];
+  OtaRequest r;
+  r.url = d["url"] | (const char *)nullptr;
+  r.project = d["project"] | (const char *)nullptr;
+  r.version = d["version"] | (const char *)nullptr;
+  r.version_code = d["version_code"] | 0L;
+  r.size = d["size"] | 0L;
+  r.sha256 = d["sha256"] | (const char *)nullptr;
+  r.img_sig = d["img_sig"] | (const char *)nullptr;
+  const char *why = nullptr;
+  if (otaPendingVerify()) why = "rejected_pending_verify";
+  if (!why)
+    why = verifySigned(d["id"] | (const char *)nullptr, "ota", r.version_code,
+                       d["ts"] | (long long)0, d["sig"] | (const char *)nullptr);
+  if (!why) why = otaCheck(r);
+  if (!why) {
+    publishStatus("online", "ota:downloading:0");
+    why = otaApply(r, otaProgress);
+  }
+  if (why) {
+    snprintf(detail, sizeof(detail), "ota:%s", why);
+    publishStatus("online", detail);
+    return why;
+  }
+  publishStatus("online", "ota:rebooting");
+  mqtt.loop();
+  delay(300);
+  ESP.restart();
+  return "rebooting";
+}
+
 void onMessage(char *topic, byte *payload, unsigned int len) {
   JsonDocument d;
   if (deserializeJson(d, payload, len)) return;
@@ -481,6 +526,8 @@ void onMessage(char *topic, byte *payload, unsigned int len) {
     doPulse(d.as<JsonVariantConst>());
   } else if (strcmp(action, "usb_power") == 0) {
     doUsb(d.as<JsonVariantConst>());
+  } else if (strcmp(action, "ota") == 0) {
+    doOta(d.as<JsonVariantConst>());
   }
 }
 
@@ -518,6 +565,9 @@ void httpHealth() {
   d["ok"] = true;
   d["node_id"] = cfg.node_id;
   d["fw"] = FW_VERSION;
+  d["fw_code"] = FW_VERSION_CODE;
+  d["ota"] = otaState();
+  d["ota_key"] = otaHasPubkey();
   d["protocol"] = PROTOCOL_VERSION;
   d["time_synced"] = timeSynced();
   d["mqtt"] = mqtt.connected();
@@ -612,13 +662,15 @@ void setup() {
   digitalWrite(PULSE_PIN, LOW);  // fail safe: relay off
   Serial.begin(115200);
   bootMs = millis();
+  otaBootCheck();  // fresh OTA image? then it must prove itself (see loop())
   loadCfg();
   usbCount = max(0, parseUsbPins(cfg.usb_pins.c_str(), usbPin));
   for (int i = 0; i < usbCount; i++) {  // restore persisted state (default: all on)
     pinMode(usbPin[i], OUTPUT);
     applyUsb(i);
   }
-  Serial.printf("pyra-claw fw %s node=%s provisioning=v1\n", FW_VERSION, cfg.node_id.c_str());
+  Serial.printf("pyra-claw fw %s node=%s provisioning=v1 ota=%s key=%d\n", FW_VERSION,
+                cfg.node_id.c_str(), otaState(), otaHasPubkey());
   String base = String("pyra/node/") + cfg.node_id;
   tCmd = base + "/cmd";
   tStatus = base + "/status";
@@ -638,8 +690,23 @@ void setup() {
   mqtt.setCallback(onMessage);
 }
 
+// Rollback guard for a fresh OTA image: confirm once healthy, else boot the old slot.
+void otaHealth() {
+  if (!otaPendingVerify()) return;
+  bool healthy = WiFi.status() == WL_CONNECTED && httpStarted &&
+                 (cfg.broker.length() == 0 || mqtt.connected());
+  if (healthy) {
+    otaMarkValid();
+    publishStatus("online", "ota:valid");
+  } else if (millis() - bootMs > OTA_HEALTH_DEADLINE_MS) {
+    Serial.println("ota: health check failed, rolling back");
+    otaRollbackAndReboot();
+  }
+}
+
 void loop() {
   pollSerial();
+  otaHealth();
   if (cfg.ssid.length() == 0) {
     delay(10);
     return;

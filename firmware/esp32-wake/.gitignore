@@ -1,2 +1,7 @@
 .pio/
 include/config.h
+# OTA keys: only ota_pub.pem may live in keys/, and it stays local. Never a private key.
+keys/*
+!keys/README.md
+*.key
+*priv*.pem
